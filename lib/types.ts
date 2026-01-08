@@ -1,6 +1,7 @@
 export type CellValue = 'red' | 'yellow' | null;
 export type Board = CellValue[][];
-export type GameStatus = 'waiting' | 'playing' | 'finished';
+export type GameStatus = 'waiting' | 'spinning' | 'playing' | 'finished';
+export type TurnTime = 10 | 20 | 30;
 
 export interface Player {
   socketId: string;
@@ -15,4 +16,16 @@ export interface GameState {
   currentPlayer: number;
   gameStatus: GameStatus;
   winner: Player | null;
+  turnTime: TurnTime;
+  remainingTime?: number;
+  isSpinning?: boolean;
+}
+
+export interface RoomInfo {
+  roomId: string;
+  hostNickname: string;
+  playerCount: number;
+  maxPlayers: number;
+  turnTime: TurnTime;
+  gameStatus: GameStatus;
 }

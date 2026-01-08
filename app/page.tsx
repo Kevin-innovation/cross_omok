@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { initSocket, getSocket } from '@/lib/socket';
 import GameBoard from '@/components/GameBoard';
-import { GameState, Player } from '@/lib/types';
+import SpinWheel from '@/components/SpinWheel';
+import { GameState, Player, TurnTime, RoomInfo } from '@/lib/types';
 import { Socket } from 'socket.io-client';
 
 export default function Home() {
@@ -19,6 +20,12 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isMoving, setIsMoving] = useState<boolean>(false);
+  const [selectedTurnTime, setSelectedTurnTime] = useState<TurnTime>(30);
+  const [remainingTime, setRemainingTime] = useState<number>(30);
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const [firstPlayer, setFirstPlayer] = useState<number | undefined>();
+  const [roomList, setRoomList] = useState<RoomInfo[]>([]);
+  const [showRoomList, setShowRoomList] = useState<boolean>(false);
 
   // 에러 자동 해제
   useEffect(() => {
@@ -86,8 +93,44 @@ export default function Home() {
       setIsMoving(false);
     });
 
+    // 돌림판 이벤트
+    newSocket.on('wheelSpinning', ({ firstPlayer, firstPlayerInfo }) => {
+      setIsSpinning(true);
+      setFirstPlayer(firstPlayer);
+    });
+
+    // 타이머 업데이트
+    newSocket.on('timeUpdate', ({ remainingTime }) => {
+      setRemainingTime(remainingTime);
+    });
+
+    // 시간 초과
+    newSocket.on('timeOver', ({ loser, winner, gameState: state }) => {
+      setGameState(state);
+      setError(`${loser.nickname}님의 시간이 초과되었습니다!`);
+      setShowWinModal(true);
+    });
+
+    // 방 목록
+    newSocket.on('roomList', (rooms: RoomInfo[]) => {
+      setRoomList(rooms);
+    });
+
+    // 방 목록 업데이트
+    newSocket.on('roomListUpdated', (rooms: RoomInfo[]) => {
+      setRoomList(rooms);
+    });
+
+    // 게임 리셋
+    newSocket.on('gameReset', ({ message }) => {
+      setError(message);
+    });
+
     // 초기 연결 상태 설정
     setIsConnected(newSocket.connected);
+
+    // 초기 방 목록 요청
+    newSocket.emit('getRoomList');
 
     return () => {
       newSocket.off('connect');
@@ -99,6 +142,12 @@ export default function Home() {
       newSocket.off('gameOver');
       newSocket.off('playerDisconnected');
       newSocket.off('error');
+      newSocket.off('wheelSpinning');
+      newSocket.off('timeUpdate');
+      newSocket.off('timeOver');
+      newSocket.off('roomList');
+      newSocket.off('roomListUpdated');
+      newSocket.off('gameReset');
     };
   }, []);
 
@@ -108,7 +157,7 @@ export default function Home() {
     setError('');
     const name = inputNickname.trim() || '게스트1';
     setNickname(name);
-    socket.emit('createRoom', name);
+    socket.emit('createRoom', { nickname: name, turnTime: selectedTurnTime });
   };
 
   const joinRoom = () => {
@@ -122,6 +171,26 @@ export default function Home() {
     const name = inputNickname.trim() || '게스트2';
     setNickname(name);
     socket.emit('joinRoom', { roomId: inputRoomId.toUpperCase(), nickname: name });
+  };
+
+  const joinRoomFromList = (selectedRoomId: string) => {
+    if (!socket || !isConnected || isLoading) return;
+    setIsLoading(true);
+    setError('');
+    const name = inputNickname.trim() || '게스트2';
+    setNickname(name);
+    socket.emit('joinRoom', { roomId: selectedRoomId, nickname: name });
+    setShowRoomList(false);
+  };
+
+  const spinWheel = () => {
+    if (!socket || !roomId) return;
+    socket.emit('spinWheel', roomId);
+  };
+
+  const onSpinComplete = (firstPlayer: number) => {
+    setIsSpinning(false);
+    setFirstPlayer(undefined);
   };
 
   const handleColumnClick = (column: number) => {
@@ -193,6 +262,27 @@ export default function Home() {
             />
           </div>
 
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              턴 제한 시간
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {([10, 20, 30] as TurnTime[]).map((time) => (
+                <button
+                  key={time}
+                  onClick={() => setSelectedTurnTime(time)}
+                  className={`py-2 px-4 rounded-lg font-medium transition-colors ${
+                    selectedTurnTime === time
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {time}초
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             onClick={createRoom}
             disabled={!isConnected || isLoading}
@@ -224,10 +314,51 @@ export default function Home() {
           <button
             onClick={joinRoom}
             disabled={!isConnected || isLoading}
-            className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed mb-4"
           >
             {isLoading ? '참가 중...' : !isConnected ? '연결 중...' : '방 참가하기'}
           </button>
+
+          <button
+            onClick={() => setShowRoomList(!showRoomList)}
+            disabled={!isConnected}
+            className="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {showRoomList ? '방 목록 닫기' : '방 목록 보기'}
+          </button>
+
+          {/* 방 목록 */}
+          {showRoomList && (
+            <div className="mt-4 border-t border-gray-300 pt-4">
+              <h3 className="font-bold text-gray-800 mb-3">현재 활성 방 ({roomList.length}개)</h3>
+              {roomList.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">생성된 방이 없습니다</p>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {roomList.map((room) => (
+                    <div
+                      key={room.roomId}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800">{room.hostNickname}님의 방</div>
+                        <div className="text-sm text-gray-600">
+                          {room.playerCount}/{room.maxPlayers}명 · {room.turnTime}초
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => joinRoomFromList(room.roomId)}
+                        disabled={room.playerCount >= room.maxPlayers || room.gameStatus !== 'waiting'}
+                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                      >
+                        {room.playerCount >= room.maxPlayers ? '가득참' : room.gameStatus === 'playing' ? '게임중' : '참가'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -341,22 +472,59 @@ export default function Home() {
           </div>
 
           {/* 게임 상태 */}
-          {gameState?.gameStatus === 'waiting' && (
+          {gameState?.gameStatus === 'waiting' && gameState.players.length === 2 && (
             <div className="mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg text-center">
+              <p className="mb-3">플레이어가 모두 모였습니다! 돌림판을 돌려 선공을 결정하세요.</p>
+              <button
+                onClick={spinWheel}
+                className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+              >
+                돌림판 돌리기
+              </button>
+            </div>
+          )}
+
+          {gameState?.gameStatus === 'waiting' && gameState.players.length < 2 && (
+            <div className="mt-4 p-4 bg-blue-100 border border-blue-400 text-blue-800 rounded-lg text-center">
               상대방을 기다리는 중입니다...
+            </div>
+          )}
+
+          {gameState?.gameStatus === 'playing' && (
+            <div className="mt-4 p-4 bg-green-100 border border-green-400 text-green-800 rounded-lg text-center">
+              <div className="flex items-center justify-center gap-4">
+                <span className="text-lg font-bold">남은 시간:</span>
+                <span className={`text-3xl font-bold ${remainingTime <= 5 ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>
+                  {remainingTime}초
+                </span>
+              </div>
             </div>
           )}
         </div>
 
+        {/* 돌림판 모달 */}
+        {isSpinning && gameState && firstPlayer !== undefined && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-8 rounded-2xl shadow-2xl">
+              <SpinWheel
+                players={gameState.players}
+                onSpinComplete={onSpinComplete}
+                isSpinning={isSpinning}
+                firstPlayer={firstPlayer}
+              />
+            </div>
+          </div>
+        )}
+
         {/* 게임 보드 */}
-        {gameState && (
+        {gameState && gameState.gameStatus !== 'spinning' && (
           <div className="flex justify-center">
             <GameBoard
               board={gameState.board}
               onColumnClick={handleColumnClick}
               isMyTurn={isMyTurn()}
               myColor={currentPlayer?.color || null}
-              isDisabled={!isConnected || isMoving}
+              isDisabled={!isConnected || isMoving || gameState.gameStatus !== 'playing'}
             />
             {isMoving && (
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-75 text-white px-6 py-3 rounded-lg">
