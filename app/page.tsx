@@ -16,41 +16,83 @@ export default function Home() {
   const [isEditingNickname, setIsEditingNickname] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [showWinModal, setShowWinModal] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isMoving, setIsMoving] = useState<boolean>(false);
+
+  // 에러 자동 해제
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   useEffect(() => {
     const newSocket = initSocket();
     setSocket(newSocket);
 
+    // 연결 상태 추적
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      setError('');
+    });
+
+    newSocket.on('disconnect', () => {
+      setIsConnected(false);
+      setError('서버와의 연결이 끊어졌습니다');
+    });
+
+    newSocket.on('connect_error', () => {
+      setIsConnected(false);
+      setError('서버에 연결할 수 없습니다');
+    });
+
     newSocket.on('roomCreated', ({ roomId, state }) => {
       setRoomId(roomId);
       setGameState(state);
       setError('');
+      setIsLoading(false);
     });
 
     newSocket.on('gameState', (state: GameState) => {
       setGameState(state);
-      setRoomId(state.roomId); // 방 ID 자동 설정
+      setRoomId(state.roomId);
       setError('');
+      setIsLoading(false);
     });
 
     newSocket.on('moveMade', ({ gameState: state }) => {
       setGameState(state);
+      setIsMoving(false);
     });
 
     newSocket.on('gameOver', ({ winner, gameState: state }) => {
       setGameState(state);
       setShowWinModal(true);
+      setIsMoving(false);
     });
 
     newSocket.on('playerDisconnected', ({ message }) => {
       setError(message);
+      setIsMoving(false);
     });
 
     newSocket.on('error', ({ message }) => {
       setError(message);
+      setIsLoading(false);
+      setIsMoving(false);
     });
 
+    // 초기 연결 상태 설정
+    setIsConnected(newSocket.connected);
+
     return () => {
+      newSocket.off('connect');
+      newSocket.off('disconnect');
+      newSocket.off('connect_error');
       newSocket.off('roomCreated');
       newSocket.off('gameState');
       newSocket.off('moveMade');
@@ -61,24 +103,31 @@ export default function Home() {
   }, []);
 
   const createRoom = () => {
-    if (!socket) return;
+    if (!socket || !isConnected || isLoading) return;
+    setIsLoading(true);
+    setError('');
     const name = inputNickname.trim() || '게스트1';
     setNickname(name);
     socket.emit('createRoom', name);
   };
 
   const joinRoom = () => {
-    if (!socket || !inputRoomId.trim()) {
+    if (!socket || !isConnected || isLoading) return;
+    if (!inputRoomId.trim()) {
       setError('방 ID를 입력해주세요');
       return;
     }
+    setIsLoading(true);
+    setError('');
     const name = inputNickname.trim() || '게스트2';
     setNickname(name);
     socket.emit('joinRoom', { roomId: inputRoomId.toUpperCase(), nickname: name });
   };
 
   const handleColumnClick = (column: number) => {
-    if (!socket || !roomId) return;
+    if (!socket || !roomId || !isConnected || isMoving) return;
+    if (!isMyTurn()) return;
+    setIsMoving(true);
     socket.emit('makeMove', { roomId, column });
   };
 
@@ -146,9 +195,10 @@ export default function Home() {
 
           <button
             onClick={createRoom}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors mb-4"
+            disabled={!isConnected || isLoading}
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors mb-4 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            새 게임 만들기
+            {isLoading ? '생성 중...' : !isConnected ? '연결 중...' : '새 게임 만들기'}
           </button>
 
           <div className="flex items-center my-6">
@@ -173,9 +223,10 @@ export default function Home() {
 
           <button
             onClick={joinRoom}
-            className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors"
+            disabled={!isConnected || isLoading}
+            className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            방 참가하기
+            {isLoading ? '참가 중...' : !isConnected ? '연결 중...' : '방 참가하기'}
           </button>
         </div>
       </div>
@@ -188,9 +239,30 @@ export default function Home() {
       <div className="container mx-auto px-4">
         {/* 상단 정보 */}
         <div className="bg-white rounded-2xl shadow-2xl p-6 mb-6">
+          {/* 연결 상태 표시 */}
+          {!isConnected && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center gap-2">
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+              서버 연결이 끊어졌습니다. 재연결 시도 중...
+            </div>
+          )}
+
+          {/* 에러 메시지 */}
+          {error && (
+            <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg flex justify-between items-center">
+              <span>{error}</span>
+              <button onClick={() => setError('')} className="text-yellow-600 hover:text-yellow-800">
+                ✕
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">Connect Four</h2>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                Connect Four
+                {isConnected && <span className="w-2 h-2 bg-green-500 rounded-full" />}
+              </h2>
               <p className="text-gray-600">
                 방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
               </p>
@@ -284,7 +356,13 @@ export default function Home() {
               onColumnClick={handleColumnClick}
               isMyTurn={isMyTurn()}
               myColor={currentPlayer?.color || null}
+              isDisabled={!isConnected || isMoving}
             />
+            {isMoving && (
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-75 text-white px-6 py-3 rounded-lg">
+                착수 중...
+              </div>
+            )}
           </div>
         )}
 

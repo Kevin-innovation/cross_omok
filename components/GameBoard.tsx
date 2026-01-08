@@ -8,11 +8,13 @@ interface GameBoardProps {
   onColumnClick: (column: number) => void;
   isMyTurn: boolean;
   myColor: 'red' | 'yellow' | null;
+  isDisabled?: boolean;
 }
 
-export default function GameBoard({ board, onColumnClick, isMyTurn, myColor }: GameBoardProps) {
+export default function GameBoard({ board, onColumnClick, isMyTurn, myColor, isDisabled = false }: GameBoardProps) {
   const [hoverColumn, setHoverColumn] = useState<number | null>(null);
   const [animatingCell, setAnimatingCell] = useState<{ row: number; col: number } | null>(null);
+  const [isClicking, setIsClicking] = useState<boolean>(false);
 
   // 각 열의 다음 빈 행 찾기
   const getNextEmptyRow = (column: number): number => {
@@ -25,14 +27,17 @@ export default function GameBoard({ board, onColumnClick, isMyTurn, myColor }: G
   };
 
   const handleColumnClick = (column: number) => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || isDisabled || isClicking) return;
     const row = getNextEmptyRow(column);
     if (row === -1) return;
 
+    setIsClicking(true);
     setAnimatingCell({ row, col: column });
     setTimeout(() => {
       setAnimatingCell(null);
       onColumnClick(column);
+      // 서버 응답을 기다리기 위해 클릭 상태는 유지
+      setTimeout(() => setIsClicking(false), 500);
     }, 300);
   };
 
@@ -50,14 +55,18 @@ export default function GameBoard({ board, onColumnClick, isMyTurn, myColor }: G
             <div key={colIndex} className="flex flex-col gap-2">
               {/* 호버 인디케이터 */}
               <div
-                className={`w-16 h-16 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-                  hoverColumn === colIndex && isMyTurn
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+                  isMyTurn && !isDisabled && !isClicking
+                    ? 'cursor-pointer'
+                    : 'cursor-not-allowed'
+                } ${
+                  hoverColumn === colIndex && isMyTurn && !isDisabled && !isClicking
                     ? myColor === 'red'
                       ? 'bg-red-500/50'
                       : 'bg-yellow-400/50'
                     : 'bg-transparent'
                 }`}
-                onMouseEnter={() => isMyTurn && setHoverColumn(colIndex)}
+                onMouseEnter={() => isMyTurn && !isDisabled && !isClicking && setHoverColumn(colIndex)}
                 onMouseLeave={() => setHoverColumn(null)}
                 onClick={() => handleColumnClick(colIndex)}
               />

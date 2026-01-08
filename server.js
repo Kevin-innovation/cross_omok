@@ -13,6 +13,22 @@ const handle = app.getRequestHandler();
 // 게임 방들을 저장하는 메모리 저장소
 const rooms = new Map();
 
+// 고유한 방 ID 생성
+function generateRoomId() {
+  let roomId;
+  do {
+    roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+  } while (rooms.has(roomId));
+  return roomId;
+}
+
+// 닉네임 검증
+function validateNickname(nickname) {
+  if (typeof nickname !== 'string') return false;
+  const trimmed = nickname.trim();
+  return trimmed.length > 0 && trimmed.length <= 20;
+}
+
 // 게임 방 클래스
 class GameRoom {
   constructor(roomId) {
@@ -60,11 +76,21 @@ class GameRoom {
   }
 
   makeMove(socketId, column) {
+    // 입력 검증
+    if (typeof column !== 'number' || column < 0 || column > 6) {
+      return { success: false, error: '잘못된 열 번호입니다' };
+    }
+
     if (this.gameStatus !== 'playing') {
       return { success: false, error: '게임이 진행 중이 아닙니다' };
     }
 
+    // 플레이어 확인
     const playerIndex = this.players.findIndex(p => p.socketId === socketId);
+    if (playerIndex === -1) {
+      return { success: false, error: '플레이어를 찾을 수 없습니다' };
+    }
+
     if (playerIndex !== this.currentPlayer) {
       return { success: false, error: '당신의 차례가 아닙니다' };
     }
@@ -205,14 +231,19 @@ app.prepare().then(() => {
 
     // 방 생성
     socket.on('createRoom', (nickname) => {
-      const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const room = new GameRoom(roomId);
-      room.addPlayer(socket.id, nickname);
-      rooms.set(roomId, room);
+      try {
+        const roomId = generateRoomId();
+        const room = new GameRoom(roomId);
+        room.addPlayer(socket.id, nickname);
+        rooms.set(roomId, room);
 
-      socket.join(roomId);
-      socket.emit('roomCreated', { roomId, state: room.getState() });
-      console.log(`Room created: ${roomId}`);
+        socket.join(roomId);
+        socket.emit('roomCreated', { roomId, state: room.getState() });
+        console.log(`Room created: ${roomId} by ${socket.id}`);
+      } catch (error) {
+        console.error('Error creating room:', error);
+        socket.emit('error', { message: '방 생성에 실패했습니다' });
+      }
     });
 
     // 방 입장
