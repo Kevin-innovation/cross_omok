@@ -45,6 +45,7 @@ class GameRoom {
     this.isSpinning = false;
     this.lastMove = null; // 마지막 착수 위치
     this.winningPositions = []; // 승리한 위치들
+    this.rematchRequests = []; // 재대결 요청한 플레이어들
   }
 
   addPlayer(socketId, nickname) {
@@ -268,6 +269,28 @@ class GameRoom {
     return null;
   }
 
+  // 재대결 요청
+  requestRematch(socketId) {
+    if (this.gameStatus !== 'finished') {
+      return { success: false, error: '게임이 끝나지 않았습니다' };
+    }
+
+    // 이미 요청한 경우 무시
+    if (this.rematchRequests.includes(socketId)) {
+      return { success: false, error: '이미 재대결을 요청했습니다' };
+    }
+
+    this.rematchRequests.push(socketId);
+
+    // 두 플레이어 모두 요청한 경우 게임 리셋
+    if (this.rematchRequests.length === 2) {
+      this.resetGame();
+      return { success: true, bothReady: true };
+    }
+
+    return { success: true, bothReady: false };
+  }
+
   resetGame() {
     this.board = Array(6).fill(null).map(() => Array(7).fill(null));
     this.currentPlayer = 0;
@@ -278,6 +301,7 @@ class GameRoom {
     this.remainingTime = this.turnTime;
     this.lastMove = null;
     this.winningPositions = [];
+    this.rematchRequests = [];
   }
 
   getState() {
@@ -292,7 +316,8 @@ class GameRoom {
       remainingTime: this.getRemainingTime(),
       isSpinning: this.isSpinning,
       lastMove: this.lastMove,
-      winningPositions: this.winningPositions
+      winningPositions: this.winningPositions,
+      rematchRequests: this.rematchRequests
     };
   }
 
@@ -511,14 +536,29 @@ app.prepare().then(() => {
       }
     });
 
-    // 게임 재시작
-    socket.on('resetGame', (roomId) => {
+    // 재대결 요청
+    socket.on('requestRematch', (roomId) => {
       const room = rooms.get(roomId);
-      if (room) {
-        clearRoomTimer(roomId);
-        room.resetGame();
-        io.to(roomId).emit('gameState', room.getState());
-        io.to(roomId).emit('gameReset', { message: '게임이 초기화되었습니다. 돌림판을 돌려주세요!' });
+      if (!room) {
+        socket.emit('error', { message: '방을 찾을 수 없습니다' });
+        return;
+      }
+
+      const result = room.requestRematch(socket.id);
+      if (result.success) {
+        // 재대결 요청 상태 업데이트
+        io.to(roomId).emit('rematchRequested', {
+          gameState: room.getState()
+        });
+
+        // 양쪽 모두 준비된 경우 게임 리셋
+        if (result.bothReady) {
+          clearRoomTimer(roomId);
+          io.to(roomId).emit('gameState', room.getState());
+          io.to(roomId).emit('gameReset', { message: '게임이 초기화되었습니다. 돌림판을 돌려주세요!' });
+        }
+      } else {
+        socket.emit('error', { message: result.error });
       }
     });
 

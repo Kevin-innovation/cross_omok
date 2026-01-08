@@ -26,6 +26,7 @@ export interface GameState {
   isSpinning?: boolean;
   lastMove?: Position | null;
   winningPositions?: Position[];
+  rematchRequests?: string[];
 }
 
 export interface RoomInfo {

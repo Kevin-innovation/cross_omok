@@ -16,7 +16,6 @@ export default function Home() {
   const [inputNickname, setInputNickname] = useState<string>('');
   const [isEditingNickname, setIsEditingNickname] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
-  const [showWinModal, setShowWinModal] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isMoving, setIsMoving] = useState<boolean>(false);
@@ -78,11 +77,12 @@ export default function Home() {
 
     newSocket.on('gameOver', ({ winner, winningPositions, gameState: state }) => {
       setGameState(state);
-      // 승리 수를 확인할 수 있도록 3초 지연 후 모달 표시
-      setTimeout(() => {
-        setShowWinModal(true);
-      }, 3000);
       setIsMoving(false);
+    });
+
+    // 재대결 요청
+    newSocket.on('rematchRequested', ({ gameState: state }) => {
+      setGameState(state);
     });
 
     newSocket.on('playerDisconnected', ({ message }) => {
@@ -143,6 +143,7 @@ export default function Home() {
       newSocket.off('gameState');
       newSocket.off('moveMade');
       newSocket.off('gameOver');
+      newSocket.off('rematchRequested');
       newSocket.off('playerDisconnected');
       newSocket.off('error');
       newSocket.off('wheelSpinning');
@@ -203,10 +204,9 @@ export default function Home() {
     socket.emit('makeMove', { roomId, column });
   };
 
-  const resetGame = () => {
+  const requestRematch = () => {
     if (!socket || !roomId) return;
-    socket.emit('resetGame', roomId);
-    setShowWinModal(false);
+    socket.emit('requestRematch', roomId);
   };
 
   const updateNickname = () => {
@@ -231,6 +231,17 @@ export default function Home() {
     if (!socket || !gameState || gameState.gameStatus !== 'playing') return false;
     const currentPlayer = gameState.players[gameState.currentPlayer];
     return currentPlayer?.socketId === socket.id;
+  };
+
+  const hasRequestedRematch = (): boolean => {
+    if (!socket || !gameState || !gameState.rematchRequests) return false;
+    return gameState.rematchRequests.includes(socket.id);
+  };
+
+  const opponentRequestedRematch = (): boolean => {
+    if (!socket || !gameState || !gameState.rematchRequests) return false;
+    const opponent = getOpponentPlayer();
+    return opponent ? gameState.rematchRequests.includes(opponent.socketId) : false;
   };
 
   const currentPlayer = getCurrentPlayer();
@@ -388,6 +399,56 @@ export default function Home() {
               <button onClick={() => setError('')} className="text-yellow-600 hover:text-yellow-800">
                 ✕
               </button>
+            </div>
+          )}
+
+          {/* 승리/패배 배너 */}
+          {gameState?.gameStatus === 'finished' && (
+            <div className={`mb-4 p-4 sm:p-6 rounded-2xl shadow-lg text-center ${
+              gameState.winner?.socketId === socket?.id
+                ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white'
+                : gameState.winner
+                ? 'bg-gradient-to-r from-red-400 to-rose-500 text-white'
+                : 'bg-gradient-to-r from-gray-400 to-slate-500 text-white'
+            }`}>
+              <div className="text-3xl sm:text-4xl md:text-5xl font-bold mb-2">
+                {gameState.winner?.socketId === socket?.id ? '🎉 승리!' : gameState.winner ? '😢 패배' : '🤝 무승부'}
+              </div>
+              <div className="text-lg sm:text-xl md:text-2xl mb-4">
+                {gameState.winner ? `${gameState.winner.nickname}님이 승리했습니다!` : '보드가 가득 찼습니다.'}
+              </div>
+
+              {/* 재대결 요청 UI */}
+              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 mt-4">
+                {hasRequestedRematch() && opponentRequestedRematch() ? (
+                  <div className="text-lg sm:text-xl font-bold animate-pulse">
+                    잠시 후 게임이 시작됩니다...
+                  </div>
+                ) : hasRequestedRematch() ? (
+                  <div className="text-base sm:text-lg">
+                    재대결을 요청했습니다. 상대방의 응답을 기다리는 중...
+                  </div>
+                ) : opponentRequestedRematch() ? (
+                  <div>
+                    <div className="text-base sm:text-lg mb-3">
+                      {opponent?.nickname}님이 재대결을 요청했습니다!
+                    </div>
+                    <button
+                      onClick={requestRematch}
+                      className="bg-white text-green-600 hover:bg-green-50 font-bold py-3 px-8 rounded-lg text-base sm:text-lg transition-colors shadow-lg"
+                    >
+                      재대결 수락
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={requestRematch}
+                    className="bg-white text-blue-600 hover:bg-blue-50 font-bold py-3 px-8 rounded-lg text-base sm:text-lg transition-colors shadow-lg"
+                  >
+                    재대결 요청
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -549,34 +610,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* 승리 모달 */}
-        {showWinModal && gameState?.gameStatus === 'finished' && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
-            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
-              {gameState.winner ? (
-                <>
-                  <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-gray-800">
-                    {gameState.winner.socketId === socket?.id ? '🎉 승리!' : '😢 패배'}
-                  </h2>
-                  <p className="text-lg sm:text-xl text-gray-600 mb-4 sm:mb-6">
-                    {gameState.winner.nickname}님이 승리했습니다!
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-gray-800">무승부!</h2>
-                  <p className="text-lg sm:text-xl text-gray-600 mb-4 sm:mb-6">보드가 가득 찼습니다.</p>
-                </>
-              )}
-              <button
-                onClick={resetGame}
-                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg text-sm sm:text-base transition-colors"
-              >
-                다시 하기
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
