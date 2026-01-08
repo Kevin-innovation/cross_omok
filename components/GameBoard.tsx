@@ -53,23 +53,32 @@ export default function GameBoard({ board, onColumnClick, isMyTurn, myColor, isD
         <div className="grid grid-cols-7 gap-2">
           {Array.from({ length: 7 }).map((_, colIndex) => (
             <div key={colIndex} className="flex flex-col gap-2">
-              {/* 호버 인디케이터 */}
+              {/* 호버 인디케이터 - 향상된 시각적 피드백 */}
               <div
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 ${
                   isMyTurn && !isDisabled && !isClicking
                     ? 'cursor-pointer'
                     : 'cursor-not-allowed'
                 } ${
                   hoverColumn === colIndex && isMyTurn && !isDisabled && !isClicking
                     ? myColor === 'red'
-                      ? 'bg-red-500/50'
-                      : 'bg-yellow-400/50'
+                      ? 'bg-red-500 shadow-lg shadow-red-500/50 scale-110'
+                      : 'bg-yellow-400 shadow-lg shadow-yellow-400/50 scale-110'
+                    : isMyTurn && !isDisabled && !isClicking
+                    ? 'bg-gray-300/30 hover:bg-gray-300/50'
                     : 'bg-transparent'
                 }`}
                 onMouseEnter={() => isMyTurn && !isDisabled && !isClicking && setHoverColumn(colIndex)}
                 onMouseLeave={() => setHoverColumn(null)}
                 onClick={() => handleColumnClick(colIndex)}
-              />
+              >
+                {/* 화살표 아이콘 */}
+                {hoverColumn === colIndex && isMyTurn && !isDisabled && !isClicking && (
+                  <div className="text-white text-2xl font-bold animate-bounce">
+                    ▼
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
