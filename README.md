@@ -26,10 +26,17 @@
   - 방장 닉네임, 인원 수, 턴 제한 시간 표시
   - 대기 중인 방만 입장 가능
 
-### UI/UX
+### UI/UX (VER 2.0 업데이트)
+- 🎯 **2클릭 확인 시스템**: 실수 방지를 위한 착수 확인 (첫 클릭: 선택, 두 번째 클릭: 확정)
+- 🏆 **승리 수 하이라이트**: 승리한 4개 돌에 초록색 링 애니메이션
+- 📍 **마지막 수 표시**: 가장 최근 착수된 돌에 흰색 테두리 표시
+- ⬇️ **턴 인디케이터 화살표**: 내 차례일 때 큰 화살표로 명확하게 안내
+- 🎊 **승리/패배 배너**: 게임 종료 시 상단에 큰 그라디언트 배너 표시
+- 🔄 **상호 재대결 확인**: 양쪽 플레이어 모두 동의해야 재시작 (마지막 보드 유지하여 복기 가능)
+- 📱 **아이폰 최적화**: 작은 화면에 맞춘 컴팩트한 레이아웃 (380px 게임 보드)
 - ✨ **향상된 클릭 가이드**: 명확한 호버 효과와 화살표 표시
 - 🎨 **애니메이션**: 부드러운 돌 떨어짐 효과
-- 📱 **반응형 디자인**: 다양한 화면 크기 지원
+- 📱 **반응형 디자인**: 모바일/태블릿/PC 모든 화면 크기 지원
 - ⚡ **실시간 상태 표시**: 연결 상태, 턴 표시, 타이머
 
 ## 기술 스택
@@ -124,24 +131,106 @@ c_omok/
 NEXT_PUBLIC_SOCKET_URL=https://crossomok-production.up.railway.app
 ```
 
+## 🚨 배포 트러블슈팅
+
+### 문제: 코드 수정 후 Railway 재배포해도 변경사항이 반영되지 않음
+
+#### 원인
+1. **Railway 빌드 캐시 문제**: Railway가 이전 빌드 캐시를 사용하여 새로운 코드를 빌드하지 않음
+2. **railway.json에 buildCommand 누락**: 명시적인 빌드 명령어가 없어서 Next.js 빌드가 생략될 수 있음
+3. **브라우저 캐시**: 클라이언트 측 캐시로 인해 이전 버전이 표시됨
+
+#### 해결 방법
+
+##### 1. railway.json 설정 확인 (필수)
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install && npm run build"  // 이 줄 필수!
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+##### 2. TypeScript 빌드 에러 해결
+코드 수정 시 TypeScript 타입 체크를 통과해야 함:
+```bash
+# 로컬에서 빌드 테스트 (선택사항)
+npm run build
+```
+
+**주의사항:**
+- `setShowWinModal` 같은 제거된 state를 이벤트 핸들러에서도 제거했는지 확인
+- `socket.id`는 `string | undefined` 타입이므로 null 체크 필수:
+  ```typescript
+  if (!socket || !socket.id) return;
+  // 또는 타입 단언
+  socket.id as string
+  ```
+
+##### 3. Railway 캐시 강제 클리어
+캐시 문제로 빌드가 안 되면:
+
+```bash
+# 방법 1: 빈 커밋으로 강제 재빌드
+git commit --allow-empty -m "Force rebuild to clear Railway cache"
+git push
+```
+
+```bash
+# 방법 2: Railway 대시보드에서
+# Settings → Clear Build Cache → Redeploy
+```
+
+##### 4. 배포 확인 방법
+- 버전 표시 추가: UI에 `VER.2.0` 같은 버전 배지 표시
+- Railway Build Logs 확인: `npm run build` 실행되었는지 확인
+- Deploy Logs 확인: 서버가 제대로 시작되었는지 확인
+
+##### 5. 브라우저 캐시 클리어
+배포 완료 후:
+- **PC**: `Ctrl + Shift + R` (Windows) / `Cmd + Shift + R` (Mac)
+- **아이폰**: 설정 → Safari → 방문 기록 및 웹사이트 데이터 지우기
+- **개발자 도구**: Network 탭 → "Disable cache" 체크 → 새로고침
+
+#### 체크리스트
+- [ ] railway.json에 buildCommand 있는지 확인
+- [ ] TypeScript 에러 없는지 확인 (특히 제거된 state 사용)
+- [ ] 커밋 & 푸시 완료
+- [ ] Railway 빌드 로그에서 `npm run build` 실행 확인
+- [ ] 필요시 빈 커밋으로 강제 재빌드
+- [ ] 브라우저 캐시 클리어 후 확인
+- [ ] 버전 배지로 새 버전 배포 확인
+
 ## Socket.io 이벤트
 
 ### 클라이언트 → 서버
 - `createRoom`: 새 방 생성
 - `joinRoom`: 방 입장
+- `spinWheel`: 돌림판 시작
 - `makeMove`: 수 두기
-- `restartGame`: 게임 재시작
+- `requestRematch`: 재대결 요청 (VER 2.0)
+- `updateNickname`: 닉네임 변경
 - `getRoomList`: 방 목록 요청
 
 ### 서버 → 클라이언트
 - `roomCreated`: 방 생성 완료
 - `gameState`: 게임 상태 업데이트
-- `moveMade`: 수 두기 완료
-- `gameOver`: 게임 종료
+- `moveMade`: 수 두기 완료 (lastMove, winningPositions 포함)
+- `gameOver`: 게임 종료 (winningPositions 포함)
+- `rematchRequested`: 재대결 요청 상태 업데이트 (VER 2.0)
+- `gameReset`: 게임 리셋 완료
 - `wheelSpinning`: 룰렛 시작
-- `spinComplete`: 룰렛 완료
 - `timeUpdate`: 타이머 업데이트
 - `timeOver`: 시간 초과
+- `playerDisconnected`: 플레이어 연결 끊김
+- `roomList`: 방 목록
 - `roomListUpdated`: 방 목록 업데이트
 - `error`: 에러 메시지
 
