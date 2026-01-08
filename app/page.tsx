@@ -111,7 +111,6 @@ export default function Home() {
     newSocket.on('timeOver', ({ loser, winner, gameState: state }) => {
       setGameState(state);
       setError(`${loser.nickname}님의 시간이 초과되었습니다!`);
-      setShowWinModal(true);
     });
 
     // 방 목록
