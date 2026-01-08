@@ -456,6 +456,7 @@ export default function Home() {
             <div>
               <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 flex items-center gap-1">
                 Connect Four
+                <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
                 {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
               </h2>
               <p className="text-xs sm:text-sm text-gray-600">
