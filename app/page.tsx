@@ -29,6 +29,7 @@ export default function Home() {
 
     newSocket.on('gameState', (state: GameState) => {
       setGameState(state);
+      setRoomId(state.roomId); // 방 ID 자동 설정
       setError('');
     });
 
