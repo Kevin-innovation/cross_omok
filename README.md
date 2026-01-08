@@ -2,6 +2,8 @@
 
 2명의 플레이어가 실시간으로 함께 플레이할 수 있는 온라인 Connect Four (사목 게임) 게임입니다.
 
+🎮 **[지금 플레이하기](https://crossomok-production.up.railway.app/)**
+
 ## 주요 기능
 
 ### 기본 게임 기능
@@ -51,12 +53,16 @@ npm install
 npm run dev
 ```
 
-서버가 http://localhost:4077 에서 실행됩니다.
+개발 서버가 http://localhost:4077 에서 실행됩니다.
 
-### 3. 게임 플레이
+### 3. 프로덕션 서버
+
+게임을 바로 플레이하려면 https://crossomok-production.up.railway.app/ 에 접속하세요.
+
+### 4. 게임 플레이
 
 #### 방법 1: 새 게임 만들기
-1. 브라우저에서 http://localhost:4077 접속
+1. 브라우저에서 https://crossomok-production.up.railway.app/ 접속
 2. 닉네임 입력
 3. "새 게임 만들기" 버튼 클릭
 4. 턴 제한 시간 선택 (10초/20초/30초)
@@ -115,7 +121,7 @@ c_omok/
 
 ### 환경변수
 ```
-NEXT_PUBLIC_SOCKET_URL=https://your-app.railway.app
+NEXT_PUBLIC_SOCKET_URL=https://crossomok-production.up.railway.app
 ```
 
 ## Socket.io 이벤트
