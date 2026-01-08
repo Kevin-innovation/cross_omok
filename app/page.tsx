@@ -234,7 +234,7 @@ export default function Home() {
 
   const hasRequestedRematch = (): boolean => {
     if (!socket || !socket.id || !gameState || !gameState.rematchRequests) return false;
-    return gameState.rematchRequests.includes(socket.id);
+    return gameState.rematchRequests.includes(socket.id as string);
   };
 
   const opponentRequestedRematch = (): boolean => {
