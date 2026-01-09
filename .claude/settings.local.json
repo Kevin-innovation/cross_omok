@@ -14,7 +14,9 @@
       "WebFetch(domain:crossomok-production.up.railway.app)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "WebFetch(domain:www.figma.com)"
+      "WebFetch(domain:www.figma.com)",
+      "Bash(dir:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
