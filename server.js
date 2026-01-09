@@ -562,6 +562,33 @@ app.prepare().then(() => {
       }
     });
 
+    // 방 나가기
+    socket.on('leaveRoom', (roomId) => {
+      console.log('Client leaving room:', socket.id, roomId);
+
+      const room = rooms.get(roomId);
+      if (!room) return;
+
+      const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
+      if (playerIndex !== -1) {
+        room.removePlayer(socket.id);
+        clearRoomTimer(roomId);
+        socket.leave(roomId);
+
+        if (room.players.length === 0) {
+          rooms.delete(roomId);
+          console.log(`Room ${roomId} deleted`);
+          io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+        } else {
+          io.to(roomId).emit('gameState', room.getState());
+          io.to(roomId).emit('playerDisconnected', {
+            message: '상대방이 나갔습니다'
+          });
+          io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+        }
+      }
+    });
+
     // 연결 해제
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);

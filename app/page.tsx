@@ -243,6 +243,15 @@ export default function Home() {
     return opponent ? gameState.rematchRequests.includes(opponent.socketId) : false;
   };
 
+  const leaveRoom = () => {
+    if (!socket || !roomId) return;
+    socket.emit('leaveRoom', roomId);
+    setRoomId('');
+    setGameState(null);
+    setError('');
+    socket.emit('getRoomList');
+  };
+
   const currentPlayer = getCurrentPlayer();
   const opponent = getOpponentPlayer();
 
@@ -252,7 +261,7 @@ export default function Home() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 px-4">
         <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 sm:mb-8 text-gray-800">
-            Connect Four
+            Connect Four BY KEVIN
           </h1>
 
           {error && (
@@ -452,15 +461,24 @@ export default function Home() {
           )}
 
           <div className="flex justify-between items-center mb-2 sm:mb-3">
-            <div>
-              <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 flex items-center gap-1">
-                Connect Four
-                <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
-                {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
-              </h2>
-              <p className="text-xs sm:text-sm text-gray-600">
-                방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
-              </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={leaveRoom}
+                className="bg-gray-500 hover:bg-gray-600 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs sm:text-sm transition-colors flex items-center gap-1"
+                title="방 목록으로 돌아가기"
+              >
+                ← 뒤로
+              </button>
+              <div>
+                <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 flex items-center gap-1">
+                  Connect Four BY KEVIN
+                  <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
+                  {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-600">
+                  방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
+                </p>
+              </div>
             </div>
             <button
               onClick={() => {

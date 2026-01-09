@@ -1,20 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Connect Four Online",
-  description: "Play Connect Four online with friends",
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-  },
-  themeColor: '#3b82f6',
+  title: "Connect Four BY KEVIN",
+  description: "Play Connect Four online with friends - BY KEVIN",
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#3b82f6',
 };
 
 export default function RootLayout({
