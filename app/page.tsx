@@ -260,9 +260,14 @@ export default function Home() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 px-4">
         <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 sm:mb-8 text-gray-800">
-            Connect Four BY KEVIN
-          </h1>
+          <div className="text-center mb-6 sm:mb-8">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 mb-2">
+              Connect Four BY KEVIN
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-600">
+              4개의 돌을 연속으로 놓아 승리하세요!
+            </p>
+          </div>
 
           {error && (
             <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
@@ -460,35 +465,24 @@ export default function Home() {
             </div>
           )}
 
-          <div className="flex justify-between items-center mb-2 sm:mb-3">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={leaveRoom}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs sm:text-sm transition-colors flex items-center gap-1"
-                title="방 목록으로 돌아가기"
-              >
-                ← 뒤로
-              </button>
-              <div>
-                <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 flex items-center gap-1">
-                  Connect Four BY KEVIN
-                  <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
-                  {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-600">
-                  방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
-                </p>
-              </div>
-            </div>
+          <div className="flex items-center gap-2 mb-2 sm:mb-3">
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(roomId);
-                alert('방 ID가 복사되었습니다!');
-              }}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs sm:text-sm transition-colors"
+              onClick={leaveRoom}
+              className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1.5 rounded transition-colors flex items-center justify-center"
+              title="방 목록으로 돌아가기"
             >
-              ID 복사
+              <span className="text-base sm:text-lg">←</span>
             </button>
+            <div className="flex-1">
+              <h2 className="text-sm sm:text-base md:text-lg font-bold text-gray-800 flex items-center gap-1">
+                Connect Four BY KEVIN
+                <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
+                {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600">
+                방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
+              </p>
+            </div>
           </div>
 
           {/* 플레이어 정보 */}
