@@ -66,6 +66,8 @@ export default function Home() {
     newSocket.on('gameState', (state: GameState) => {
       setGameState(state);
       setRoomId(state.roomId);
+      setRemainingTime(state.remainingTime || state.turnTime);
+      setSelectedTurnTime(state.turnTime);
       setError('');
       setIsLoading(false);
     });
@@ -126,6 +128,8 @@ export default function Home() {
     // 게임 리셋
     newSocket.on('gameReset', ({ message }) => {
       setError(message);
+      setIsSpinning(false);
+      setFirstPlayer(undefined);
     });
 
     // 초기 연결 상태 설정
@@ -249,6 +253,9 @@ export default function Home() {
     setRoomId('');
     setGameState(null);
     setError('');
+    setIsSpinning(false);
+    setFirstPlayer(undefined);
+    setIsMoving(false);
     socket.emit('getRoomList');
   };
 

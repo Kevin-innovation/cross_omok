@@ -17,9 +17,9 @@ export default function SpinWheel({ players, onSpinComplete, isSpinning, firstPl
   useEffect(() => {
     if (isSpinning && firstPlayer !== undefined) {
       setIsAnimating(true);
-      // 3초 동안 회전 애니메이션
-      const targetRotation = 360 * 5 + (firstPlayer === 0 ? 0 : 180);
-      setRotation(targetRotation);
+      // 3초 동안 회전 애니메이션 - 이전 회전에 누적
+      const additionalRotation = 360 * 5 + (firstPlayer === 0 ? 0 : 180);
+      setRotation(prev => prev + additionalRotation);
 
       setTimeout(() => {
         setIsAnimating(false);
