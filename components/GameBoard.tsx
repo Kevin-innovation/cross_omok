@@ -141,7 +141,7 @@ export default function GameBoard({ board, onColumnClick, isMyTurn, myColor, isD
               return (
                 <div
                   key={`${rowIndex}-${colIndex}`}
-                  className={`aspect-square w-full max-w-[50px] sm:max-w-[60px] rounded-full flex items-center justify-center shadow-inner ${
+                  className={`relative aspect-square w-full max-w-[50px] sm:max-w-[60px] rounded-full flex items-center justify-center shadow-inner ${
                     isWinning
                       ? 'bg-green-400 ring-2 sm:ring-3 ring-green-400 animate-pulse'
                       : 'bg-blue-800'
@@ -154,8 +154,12 @@ export default function GameBoard({ board, onColumnClick, isMyTurn, myColor, isD
                       animatingCell?.row === rowIndex && animatingCell?.col === colIndex
                         ? 'scale-0'
                         : 'scale-100'
-                    } ${isWinning ? 'shadow-lg shadow-green-500/50' : isLast && !isWinning ? 'ring-4 sm:ring-[5px] ring-white shadow-lg shadow-white/50' : ''}`}
+                    } ${isWinning ? 'shadow-lg shadow-green-500/50' : ''}`}
                   />
+                  {/* 마지막 착수 표시 - 별도 오버레이 */}
+                  {isLast && !isWinning && cell !== null && (
+                    <div className="absolute inset-0 rounded-full border-[3px] sm:border-[4px] border-cyan-400 animate-pulse pointer-events-none" />
+                  )}
                 </div>
               );
             })
