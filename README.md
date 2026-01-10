@@ -295,9 +295,14 @@ git push
   - 문제: 서버는 `{ row, column }` 전송, 클라이언트는 `lastMove.col` 확인
   - 해결: 서버를 `{ row, col }` 로 통일
   - UI: 청록색 테두리 + 깜빡임 애니메이션 (별도 오버레이 레이어 방식)
-- ✅ **돌림판 회전 버그 수정**: 재대결 시 회전 누적 방식으로 변경
-  - 문제: `setRotation(targetRotation)` → 같은 값이면 회전 안 함
-  - 해결: `setRotation(prev => prev + additionalRotation)` → 항상 새로운 회전 추가
+- ✅ **돌림판 회전 버그 수정 (최종)**: 두 번째 재대결부터 회전 안 보이는 문제 해결
+  - **문제**: 첫 번째 스핀(0°→1800°)은 정상, 두 번째부터(1800°→3600°) 정지된 것처럼 보임
+  - **원인**: rotation 값이 계속 누적(0→1800→3600→5400...)되어 CSS transition은 작동하지만 시각적으로 회전이 안 보임
+  - **해결**: 매 스핀마다 rotation을 0으로 리셋 후 목표값 설정
+    1. `setIsAnimating(false)` + `setRotation(0)` (transition 끄고 리셋)
+    2. `requestAnimationFrame` 두 번 사용하여 DOM 업데이트 동기화
+    3. `setIsAnimating(true)` + `setRotation(1800 or 1980)` (transition 켜고 회전)
+  - **결과**: 재대결할 때마다 항상 0도에서 시작하여 육안으로 명확하게 회전하는 애니메이션 표시
 - ✅ **게임 상태 초기화 버그 수정**: 재대결/방 나가기 시 완전한 상태 리셋
   - `remainingTime`, `selectedTurnTime` 서버와 동기화
   - `isSpinning`, `firstPlayer`, `isMoving` 상태 초기화
