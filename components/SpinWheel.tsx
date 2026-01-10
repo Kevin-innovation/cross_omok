@@ -13,20 +13,28 @@ interface SpinWheelProps {
 export default function SpinWheel({ players, onSpinComplete, isSpinning, firstPlayer }: SpinWheelProps) {
   const [rotation, setRotation] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [hasSpun, setHasSpun] = useState(false);
 
   useEffect(() => {
-    if (isSpinning && firstPlayer !== undefined) {
+    // isSpinning이 true이고 firstPlayer가 정의되어 있으며, 아직 회전하지 않았을 때만 실행
+    if (isSpinning && firstPlayer !== undefined && !hasSpun) {
+      console.log('SpinWheel starting animation, firstPlayer:', firstPlayer);
+      setHasSpun(true);
       setIsAnimating(true);
+
       // 3초 동안 회전 애니메이션 - 이전 회전에 누적
       const additionalRotation = 360 * 5 + (firstPlayer === 0 ? 0 : 180);
       setRotation(prev => prev + additionalRotation);
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setIsAnimating(false);
         onSpinComplete(firstPlayer);
+        setHasSpun(false); // 다음 회전을 위해 리셋
       }, 3000);
+
+      return () => clearTimeout(timer);
     }
-  }, [isSpinning, firstPlayer, onSpinComplete]);
+  }, [isSpinning, firstPlayer, hasSpun, onSpinComplete]);
 
   const player1 = players[0];
   const player2 = players[1];

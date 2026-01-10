@@ -303,6 +303,12 @@ class GameRoom {
 
     this.rematchRequests.push(socketId);
 
+    // AI가 있으면 즉시 리셋
+    if (this.hasAI) {
+      this.resetGame();
+      return { success: true, bothReady: true };
+    }
+
     // 두 플레이어 모두 요청한 경우 게임 리셋
     if (this.rematchRequests.length === 2) {
       this.resetGame();
@@ -851,7 +857,28 @@ app.prepare().then(() => {
         if (result.bothReady) {
           clearRoomTimer(roomId);
           io.to(roomId).emit('gameState', room.getState());
-          io.to(roomId).emit('gameReset', { message: '게임이 초기화되었습니다. 돌림판을 돌려주세요!' });
+
+          // AI와의 대전이면 자동으로 돌림판 시작
+          if (room.hasAI) {
+            console.log(`Auto-starting spin wheel for AI rematch in room ${roomId}`);
+            const spinResult = room.spinWheel();
+            if (spinResult.success) {
+              io.to(roomId).emit('wheelSpinning', {
+                firstPlayer: spinResult.firstPlayer,
+                firstPlayerInfo: spinResult.firstPlayerInfo
+              });
+
+              // 3초 후 게임 시작
+              setTimeout(() => {
+                room.startGameAfterSpin();
+                io.to(roomId).emit('gameState', room.getState());
+                startRoomTimer(roomId, room);
+                makeAIMove(roomId, room);
+              }, 3000);
+            }
+          } else {
+            io.to(roomId).emit('gameReset', { message: '게임이 초기화되었습니다. 돌림판을 돌려주세요!' });
+          }
         }
       } else {
         socket.emit('error', { message: result.error });

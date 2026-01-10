@@ -100,8 +100,15 @@ export default function Home() {
 
     // 돌림판 이벤트
     newSocket.on('wheelSpinning', ({ firstPlayer, firstPlayerInfo }) => {
-      setIsSpinning(true);
-      setFirstPlayer(firstPlayer);
+      console.log('Received wheelSpinning event, firstPlayer:', firstPlayer);
+      // 먼저 초기화
+      setIsSpinning(false);
+      setFirstPlayer(undefined);
+      // 다음 프레임에서 설정 (React가 상태 변경을 감지하도록)
+      setTimeout(() => {
+        setIsSpinning(true);
+        setFirstPlayer(firstPlayer);
+      }, 50);
     });
 
     // 타이머 업데이트
