@@ -47,6 +47,12 @@ class GameRoom {
     this.winningPositions = []; // 승리한 위치들
     this.rematchRequests = []; // 재대결 요청한 플레이어들
     this.hasAI = false; // AI 플레이어 존재 여부
+    this.lastActivity = Date.now(); // 마지막 활동 시간
+  }
+
+  // 활동 시간 업데이트
+  updateActivity() {
+    this.lastActivity = Date.now();
   }
 
   addPlayer(socketId, nickname) {
@@ -64,6 +70,7 @@ class GameRoom {
     if (this.players.length === 2) {
       this.gameStatus = 'waiting'; // 돌림판은 명시적으로 시작
     }
+    this.updateActivity();
     return true;
   }
 
@@ -82,6 +89,7 @@ class GameRoom {
 
     this.hasAI = true;
     this.gameStatus = 'waiting'; // 돌림판 대기
+    this.updateActivity();
 
     return { success: true };
   }
@@ -98,6 +106,7 @@ class GameRoom {
     // 랜덤으로 선공 결정 (0 or 1)
     const firstPlayer = Math.floor(Math.random() * 2);
     this.currentPlayer = firstPlayer;
+    this.updateActivity();
 
     return {
       success: true,
@@ -193,6 +202,9 @@ class GameRoom {
 
     // 마지막 착수 위치 저장
     this.lastMove = { row, col: column };
+
+    // 활동 시간 업데이트
+    this.updateActivity();
 
     // 승리 체크
     const winningPositions = this.checkWin(row, column, color);
@@ -302,6 +314,7 @@ class GameRoom {
     }
 
     this.rematchRequests.push(socketId);
+    this.updateActivity();
 
     // AI가 있으면 즉시 리셋
     if (this.hasAI) {
@@ -577,6 +590,10 @@ class GameRoom {
 app.prepare().then(() => {
   console.log('Next.js app prepared successfully');
 
+  // 서버 시작 시 모든 방 초기화
+  rooms.clear();
+  console.log('All existing rooms cleared on server startup');
+
   const httpServer = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url, true);
@@ -585,6 +602,23 @@ app.prepare().then(() => {
       if (parsedUrl.pathname === '/health' || parsedUrl.pathname === '/api/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+        return;
+      }
+
+      // Manual room cleanup endpoint (for testing/admin)
+      if (parsedUrl.pathname === '/api/cleanup-rooms') {
+        const deletedRooms = [];
+        for (const [roomId, room] of rooms.entries()) {
+          deletedRooms.push(roomId);
+          rooms.delete(roomId);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          deletedCount: deletedRooms.length,
+          deletedRooms
+        }));
+        console.log(`Manual cleanup: ${deletedRooms.length} room(s) deleted`);
         return;
       }
 
@@ -700,6 +734,44 @@ app.prepare().then(() => {
       }
     }, thinkTime);
   }
+
+  // 비활성 방 자동 정리 (30분 이상 활동 없으면 삭제)
+  const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30분 (밀리초)
+  const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5분마다 체크 (밀리초)
+
+  function cleanupInactiveRooms() {
+    const now = Date.now();
+    let deletedCount = 0;
+
+    for (const [roomId, room] of rooms.entries()) {
+      const inactiveTime = now - room.lastActivity;
+
+      if (inactiveTime > INACTIVITY_TIMEOUT) {
+        // 타이머 정리
+        clearRoomTimer(roomId);
+
+        // 방에 있는 모든 소켓에게 알림
+        io.to(roomId).emit('roomClosed', {
+          message: '방이 30분 이상 비활성 상태로 자동 삭제되었습니다.'
+        });
+
+        // 방 삭제
+        rooms.delete(roomId);
+        deletedCount++;
+        console.log(`Room ${roomId} deleted due to inactivity (${Math.floor(inactiveTime / 60000)} minutes)`);
+      }
+    }
+
+    if (deletedCount > 0) {
+      // 방 목록 업데이트
+      io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+      console.log(`Cleanup completed: ${deletedCount} inactive room(s) deleted`);
+    }
+  }
+
+  // 정리 타이머 시작
+  const cleanupTimer = setInterval(cleanupInactiveRooms, CLEANUP_INTERVAL);
+  console.log(`Inactive room cleanup enabled: checking every ${CLEANUP_INTERVAL / 60000} minutes, timeout after ${INACTIVITY_TIMEOUT / 60000} minutes`);
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -949,4 +1021,23 @@ app.prepare().then(() => {
       console.log(`> Ready on http://0.0.0.0:${port}`);
       console.log(`> Environment: ${dev ? 'development' : 'production'}`);
     });
+
+  // Graceful shutdown handling
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server and cleanup timer');
+    clearInterval(cleanupTimer);
+    httpServer.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server and cleanup timer');
+    clearInterval(cleanupTimer);
+    httpServer.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+  });
 });

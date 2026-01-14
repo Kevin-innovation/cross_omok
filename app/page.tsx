@@ -139,6 +139,15 @@ export default function Home() {
       setFirstPlayer(undefined);
     });
 
+    // 방 자동 삭제 (비활성)
+    newSocket.on('roomClosed', ({ message }) => {
+      setError(message);
+      setGameState(null);
+      setRoomId('');
+      setIsSpinning(false);
+      setFirstPlayer(undefined);
+    });
+
     // 초기 연결 상태 설정
     setIsConnected(newSocket.connected);
 
@@ -162,6 +171,7 @@ export default function Home() {
       newSocket.off('roomList');
       newSocket.off('roomListUpdated');
       newSocket.off('gameReset');
+      newSocket.off('roomClosed');
     };
   }, []);
 
