@@ -1,15 +1,25 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Environment variables (baked in at build time for NEXT_PUBLIC_*)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Create client - will be non-functional if env vars are missing (build time)
-export const supabase: SupabaseClient = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder');
+// Debug: log configuration status (remove in production)
+if (typeof window !== 'undefined') {
+  console.log('Supabase URL configured:', !!supabaseUrl);
+  console.log('Supabase Key configured:', !!supabaseAnonKey);
+}
 
-// Runtime check helper - use in components that require Supabase
+// Runtime check helper
 export const isSupabaseConfigured = () => {
   return Boolean(supabaseUrl && supabaseAnonKey);
 };
+
+// Create client - uses placeholder if not configured (for build)
+export const supabase: SupabaseClient = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder'
+);
 
 // Types for database tables - EXACTLY matching DB schema
 
