@@ -1,163 +1,124 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase, DbTitle, DbUserTitle, DbUserStatistics } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 
-interface Achievement {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  category: 'wins' | 'special' | 'streak' | 'social';
+interface AchievementWithProgress extends DbTitle {
   progress: number;
   target: number;
   unlocked: boolean;
   unlockedAt?: string;
-  rarity: 'common' | 'rare' | 'epic' | 'legendary';
 }
 
-// Mock data - will be replaced with Supabase data
-const mockAchievements: Achievement[] = [
-  {
-    id: '1',
-    name: '첫 승리',
-    description: '첫 번째 게임에서 승리하세요',
-    icon: '🎉',
-    category: 'wins',
-    progress: 1,
-    target: 1,
-    unlocked: true,
-    unlockedAt: '2025-01-10',
-    rarity: 'common',
-  },
-  {
-    id: '2',
-    name: '10승 달성',
-    description: '10번 승리하세요',
-    icon: '🏆',
-    category: 'wins',
-    progress: 10,
-    target: 10,
-    unlocked: true,
-    unlockedAt: '2025-01-12',
-    rarity: 'common',
-  },
-  {
-    id: '3',
-    name: '50승 마스터',
-    description: '50번 승리하세요',
-    icon: '👑',
-    category: 'wins',
-    progress: 35,
-    target: 50,
-    unlocked: false,
-    rarity: 'rare',
-  },
-  {
-    id: '4',
-    name: '100승 전설',
-    description: '100번 승리하세요',
-    icon: '⭐',
-    category: 'wins',
-    progress: 35,
-    target: 100,
-    unlocked: false,
-    rarity: 'epic',
-  },
-  {
-    id: '5',
-    name: '연속 3승',
-    description: '3연승을 달성하세요',
-    icon: '🔥',
-    category: 'streak',
-    progress: 3,
-    target: 3,
-    unlocked: true,
-    unlockedAt: '2025-01-13',
-    rarity: 'common',
-  },
-  {
-    id: '6',
-    name: '연속 5승',
-    description: '5연승을 달성하세요',
-    icon: '💪',
-    category: 'streak',
-    progress: 3,
-    target: 5,
-    unlocked: false,
-    rarity: 'rare',
-  },
-  {
-    id: '7',
-    name: '연속 10승',
-    description: '10연승을 달성하세요',
-    icon: '🌟',
-    category: 'streak',
-    progress: 3,
-    target: 10,
-    unlocked: false,
-    rarity: 'legendary',
-  },
-  {
-    id: '8',
-    name: 'AI 정복자',
-    description: 'AI를 10번 이기세요',
-    icon: '🤖',
-    category: 'special',
-    progress: 5,
-    target: 10,
-    unlocked: false,
-    rarity: 'rare',
-  },
-  {
-    id: '9',
-    name: '스피드러너',
-    description: '10턴 이내에 승리하세요',
-    icon: '⚡',
-    category: 'special',
-    progress: 0,
-    target: 1,
-    unlocked: false,
-    rarity: 'epic',
-  },
-  {
-    id: '10',
-    name: '역전의 명수',
-    description: '역전승 5회 달성',
-    icon: '🔄',
-    category: 'special',
-    progress: 2,
-    target: 5,
-    unlocked: false,
-    rarity: 'rare',
-  },
-  {
-    id: '11',
-    name: '친선 경기',
-    description: '친구와 10판 플레이',
-    icon: '🤝',
-    category: 'social',
-    progress: 3,
-    target: 10,
-    unlocked: false,
-    rarity: 'common',
-  },
-  {
-    id: '12',
-    name: '재대결 마스터',
-    description: '재대결 20회 진행',
-    icon: '🔁',
-    category: 'social',
-    progress: 8,
-    target: 20,
-    unlocked: false,
-    rarity: 'rare',
-  },
-];
-
 export default function AchievementsPage() {
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'wins' | 'special' | 'streak' | 'social'>('all');
+  const { user, isLoggedIn, openLoginModal } = useAuth();
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [achievements, setAchievements] = useState<AchievementWithProgress[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userStats, setUserStats] = useState<DbUserStatistics | null>(null);
 
-  const getRarityStyle = (rarity: Achievement['rarity']) => {
+  useEffect(() => {
+    fetchAchievements();
+  }, [user?.id]);
+
+  const fetchAchievements = async () => {
+    setIsLoading(true);
+
+    // Fetch all titles
+    const { data: titles, error: titlesError } = await supabase
+      .from('titles')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true });
+
+    if (titlesError) {
+      console.error('Error fetching titles:', titlesError);
+      setIsLoading(false);
+      return;
+    }
+
+    let userTitles: DbUserTitle[] = [];
+    let stats: DbUserStatistics | null = null;
+
+    // Fetch user's earned titles and stats if logged in
+    if (user?.id) {
+      const [userTitlesResult, statsResult] = await Promise.all([
+        supabase
+          .from('user_titles')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true),
+        supabase
+          .from('user_statistics')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('game_mode_id', 2) // ai-ranked mode
+          .single()
+      ]);
+
+      userTitles = userTitlesResult.data || [];
+      stats = statsResult.data || null;
+      setUserStats(stats);
+    }
+
+    // Calculate progress for each achievement
+    const achievementsWithProgress: AchievementWithProgress[] = (titles || []).map(title => {
+      const userTitle = userTitles.find(ut => ut.title_id === title.id);
+      const condition = title.condition_json as {
+        type: string;
+        min?: number;
+        max?: number;
+        min_games?: number;
+        count?: number;
+        streak?: number;
+      };
+
+      let progress = 0;
+      let target = 1;
+
+      if (stats) {
+        switch (condition.type) {
+          case 'win_rate':
+            progress = stats.win_rate;
+            target = condition.min || 0;
+            break;
+          case 'total_wins':
+            progress = stats.wins;
+            target = condition.count || 1;
+            break;
+          case 'total_games':
+            progress = stats.total_games;
+            target = condition.count || 1;
+            break;
+          case 'win_streak':
+            progress = stats.best_win_streak;
+            target = condition.streak || 1;
+            break;
+          case 'ai_wins':
+            progress = stats.wins; // Simplified - all wins count for AI mode
+            target = condition.count || 1;
+            break;
+          default:
+            progress = 0;
+            target = 1;
+        }
+      }
+
+      return {
+        ...title,
+        progress,
+        target,
+        unlocked: !!userTitle,
+        unlockedAt: userTitle?.earned_at ? new Date(userTitle.earned_at).toLocaleDateString('ko-KR') : undefined,
+      };
+    });
+
+    setAchievements(achievementsWithProgress);
+    setIsLoading(false);
+  };
+
+  const getRarityStyle = (rarity: string) => {
     switch (rarity) {
       case 'legendary':
         return 'bg-gradient-to-r from-yellow-200 to-amber-300 border-yellow-400';
@@ -170,7 +131,7 @@ export default function AchievementsPage() {
     }
   };
 
-  const getRarityLabel = (rarity: Achievement['rarity']) => {
+  const getRarityLabel = (rarity: string) => {
     switch (rarity) {
       case 'legendary': return { text: '전설', color: 'text-yellow-700 bg-yellow-100' };
       case 'epic': return { text: '영웅', color: 'text-purple-700 bg-purple-100' };
@@ -179,15 +140,55 @@ export default function AchievementsPage() {
     }
   };
 
-  const filteredAchievements = selectedCategory === 'all'
-    ? mockAchievements
-    : mockAchievements.filter(a => a.category === selectedCategory);
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'win_rate': return '📊';
+      case 'total_wins': return '🏆';
+      case 'win_streak': return '🔥';
+      case 'ai_wins': return '🤖';
+      case 'special': return '⭐';
+      default: return '🎯';
+    }
+  };
 
-  const unlockedCount = mockAchievements.filter(a => a.unlocked).length;
-  const totalCount = mockAchievements.length;
+  const categories = [
+    { id: 'all', label: '전체' },
+    { id: 'win_rate', label: '승률' },
+    { id: 'total_wins', label: '승리' },
+    { id: 'win_streak', label: '연승' },
+    { id: 'ai_wins', label: 'AI' },
+    { id: 'special', label: '특별' },
+  ];
+
+  const filteredAchievements = selectedCategory === 'all'
+    ? achievements
+    : achievements.filter(a => a.category === selectedCategory);
+
+  const unlockedCount = achievements.filter(a => a.unlocked).length;
+  const totalCount = achievements.length;
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-[calc(100vh-120px)] bg-gradient-to-br from-blue-500 to-purple-600">
+        <div className="max-w-[500px] mx-auto px-4 py-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 text-center">
+            <div className="text-6xl mb-4">🏆</div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">로그인이 필요합니다</h2>
+            <p className="text-gray-500 mb-6">업적을 확인하려면 로그인해주세요</p>
+            <button
+              onClick={openLoginModal}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg transition-colors"
+            >
+              로그인하기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 pt-16 pb-20">
+    <div className="min-h-[calc(100vh-120px)] bg-gradient-to-br from-blue-500 to-purple-600">
       <div className="max-w-[500px] mx-auto px-4 py-4">
         <div className="bg-white rounded-2xl shadow-2xl p-4">
           <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">업적</h1>
@@ -201,23 +202,17 @@ export default function AchievementsPage() {
             <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${(unlockedCount / totalCount) * 100}%` }}
+                style={{ width: `${totalCount > 0 ? (unlockedCount / totalCount) * 100 : 0}%` }}
               />
             </div>
           </div>
 
           {/* Category Filter */}
           <div className="flex flex-wrap gap-2 mb-4">
-            {[
-              { id: 'all', label: '전체' },
-              { id: 'wins', label: '승리' },
-              { id: 'streak', label: '연승' },
-              { id: 'special', label: '특별' },
-              { id: 'social', label: '소셜' },
-            ].map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.id as typeof selectedCategory)}
+                onClick={() => setSelectedCategory(cat.id)}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   selectedCategory === cat.id
                     ? 'bg-blue-500 text-white'
@@ -229,65 +224,80 @@ export default function AchievementsPage() {
             ))}
           </div>
 
-          {/* Achievements List */}
-          <div className="space-y-3">
-            {filteredAchievements.map((achievement) => {
-              const rarityLabel = getRarityLabel(achievement.rarity);
-              return (
-                <div
-                  key={achievement.id}
-                  className={`p-3 rounded-xl border-2 transition-all ${
-                    achievement.unlocked
-                      ? getRarityStyle(achievement.rarity)
-                      : 'bg-gray-50 border-gray-200 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {/* Icon */}
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
-                      achievement.unlocked ? 'bg-white/50' : 'bg-gray-200 grayscale'
-                    }`}>
-                      {achievement.icon}
-                    </div>
+          {/* Loading State */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+          ) : filteredAchievements.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              해당 카테고리의 업적이 없습니다.
+            </div>
+          ) : (
+            /* Achievements List */
+            <div className="space-y-3">
+              {filteredAchievements.map((achievement) => {
+                const rarityLabel = getRarityLabel(achievement.rarity);
+                const progressPercent = achievement.target > 0
+                  ? Math.min((achievement.progress / achievement.target) * 100, 100)
+                  : 0;
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`font-bold ${achievement.unlocked ? 'text-gray-800' : 'text-gray-500'}`}>
-                          {achievement.name}
-                        </span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${rarityLabel.color}`}>
-                          {rarityLabel.text}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 mb-2">{achievement.description}</p>
-
-                      {/* Progress Bar */}
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full transition-all ${
-                              achievement.unlocked ? 'bg-green-500' : 'bg-blue-500'
-                            }`}
-                            style={{ width: `${Math.min((achievement.progress / achievement.target) * 100, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-500 whitespace-nowrap">
-                          {achievement.progress}/{achievement.target}
-                        </span>
+                return (
+                  <div
+                    key={achievement.id}
+                    className={`p-3 rounded-xl border-2 transition-all ${
+                      achievement.unlocked
+                        ? getRarityStyle(achievement.rarity)
+                        : 'bg-gray-50 border-gray-200 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Icon */}
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
+                        achievement.unlocked ? 'bg-white/50' : 'bg-gray-200 grayscale'
+                      }`}>
+                        {getCategoryIcon(achievement.category)}
                       </div>
 
-                      {achievement.unlocked && achievement.unlockedAt && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          달성일: {achievement.unlockedAt}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`font-bold ${achievement.unlocked ? 'text-gray-800' : 'text-gray-500'}`}>
+                            {achievement.display_name}
+                          </span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${rarityLabel.color}`}>
+                            {rarityLabel.text}
+                          </span>
                         </div>
-                      )}
+                        <p className="text-xs text-gray-500 mb-2">{achievement.description}</p>
+
+                        {/* Progress Bar */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full transition-all ${
+                                achievement.unlocked ? 'bg-green-500' : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {achievement.progress.toFixed(achievement.category === 'win_rate' ? 1 : 0)}/{achievement.target}
+                          </span>
+                        </div>
+
+                        {achievement.unlocked && achievement.unlockedAt && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            달성일: {achievement.unlockedAt}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

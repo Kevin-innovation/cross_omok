@@ -3,7 +3,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function Header() {
-  const { user, isLoggedIn, logout, openLoginModal, openSignupModal } = useAuth();
+  const { user, isLoggedIn, isLoading, signOut, openLoginModal, openSignupModal } = useAuth();
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm">
@@ -34,7 +34,7 @@ export default function Header() {
                 </span>
               </div>
               <button
-                onClick={logout}
+                onClick={signOut}
                 className="text-xs px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
               >
                 로그아웃

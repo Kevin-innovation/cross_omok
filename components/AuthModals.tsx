@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function LoginModal() {
-  const { isLoginModalOpen, closeLoginModal, openSignupModal, login } = useAuth();
+  const { isLoginModalOpen, closeLoginModal, openSignupModal, signInWithEmail, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -17,21 +17,20 @@ export function LoginModal() {
     setIsLoading(true);
     setError('');
 
-    // TODO: Implement actual Supabase authentication
-    // For now, just mock login
-    setTimeout(() => {
-      login({
-        id: '1',
-        nickname: email.split('@')[0] || 'User',
-        email: email,
-      });
-      setIsLoading(false);
-    }, 1000);
+    const result = await signInWithEmail(email, password);
+
+    if (result.error) {
+      setError(result.error === 'Invalid login credentials'
+        ? '이메일 또는 비밀번호가 올바르지 않습니다.'
+        : result.error
+      );
+    }
+
+    setIsLoading(false);
   };
 
-  const handleGoogleLogin = () => {
-    // TODO: Implement Google OAuth with Supabase
-    console.log('Google login clicked');
+  const handleGoogleLogin = async () => {
+    await signInWithGoogle();
   };
 
   return (
@@ -127,19 +126,21 @@ export function LoginModal() {
 }
 
 export function SignupModal() {
-  const { isSignupModalOpen, closeSignupModal, openLoginModal, login } = useAuth();
+  const { isSignupModalOpen, closeSignupModal, openLoginModal, signUpWithEmail, signInWithGoogle } = useAuth();
   const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   if (!isSignupModalOpen) return null;
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
 
     if (password !== confirmPassword) {
       setError('비밀번호가 일치하지 않습니다.');
@@ -153,21 +154,28 @@ export function SignupModal() {
 
     setIsLoading(true);
 
-    // TODO: Implement actual Supabase signup
-    // For now, just mock signup
-    setTimeout(() => {
-      login({
-        id: '1',
-        nickname: nickname || email.split('@')[0],
-        email: email,
-      });
-      setIsLoading(false);
-    }, 1000);
+    const result = await signUpWithEmail(email, password, nickname);
+
+    if (result.error) {
+      if (result.error.includes('already registered')) {
+        setError('이미 등록된 이메일입니다.');
+      } else {
+        setError(result.error);
+      }
+    } else {
+      setSuccess('회원가입이 완료되었습니다! 이메일을 확인해주세요.');
+      // Clear form
+      setNickname('');
+      setEmail('');
+      setPassword('');
+      setConfirmPassword('');
+    }
+
+    setIsLoading(false);
   };
 
-  const handleGoogleSignup = () => {
-    // TODO: Implement Google OAuth with Supabase
-    console.log('Google signup clicked');
+  const handleGoogleSignup = async () => {
+    await signInWithGoogle();
   };
 
   return (
@@ -188,6 +196,12 @@ export function SignupModal() {
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-sm">
+            {success}
           </div>
         )}
 
