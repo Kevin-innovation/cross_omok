@@ -288,7 +288,7 @@ export default function Home() {
   // 게임 대기 화면
   if (!roomId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 px-4">
+      <div className="min-h-[calc(100vh-120px)] flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 px-4">
         <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full">
           <div className="text-center mb-6 sm:mb-8">
             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 mb-2">
@@ -423,7 +423,7 @@ export default function Home() {
 
   // 게임 화면
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 py-1 sm:py-3 md:py-4 overflow-y-auto">
+    <div className="min-h-[calc(100vh-120px)] bg-gradient-to-br from-blue-500 to-purple-600 py-1 sm:py-3 md:py-4 overflow-y-auto">
       <div className="container mx-auto px-2 sm:px-3 md:px-4 max-w-[500px]">
         {/* 상단 정보 */}
         <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl p-2 sm:p-3 md:p-4 mb-1 sm:mb-2 md:mb-3">
