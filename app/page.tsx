@@ -108,6 +108,14 @@ export default function Home() {
       const currentUser = userRef.current;
       const currentIsLoggedIn = isLoggedInRef.current;
 
+      console.log('gameOver event - Auth state:', {
+        isLoggedIn: currentIsLoggedIn,
+        userId: currentUser?.id,
+        alreadyProcessed: gameResultProcessedRef.current,
+        winner: winner?.nickname,
+        socketId: newSocket.id
+      });
+
       if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
         gameResultProcessedRef.current = true;
 
@@ -125,16 +133,30 @@ export default function Home() {
         const isAIGame = state.players.some((p: Player) => p.isAI);
         const gameModeKey = isAIGame ? 'ai-ranked' : 'player-ranked';
 
+        console.log('Saving game result:', {
+          userId: currentUser.id,
+          gameModeKey,
+          result,
+          isAIGame,
+          players: state.players.map((p: Player) => ({ nickname: p.nickname, isAI: p.isAI }))
+        });
+
         try {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
           if (updateResult.success) {
-            console.log(`Game result saved: ${result} in ${gameModeKey} mode`);
+            console.log(`Game result saved successfully: ${result} in ${gameModeKey} mode`);
           } else {
             console.error('Failed to save game result:', updateResult.error);
           }
         } catch (err) {
           console.error('Error saving game result:', err);
         }
+      } else {
+        console.log('Game result not saved - conditions not met:', {
+          isLoggedIn: currentIsLoggedIn,
+          hasUserId: !!currentUser?.id,
+          alreadyProcessed: gameResultProcessedRef.current
+        });
       }
     });
 
@@ -182,6 +204,14 @@ export default function Home() {
       const currentUser = userRef.current;
       const currentIsLoggedIn = isLoggedInRef.current;
 
+      console.log('timeOver event - Auth state:', {
+        isLoggedIn: currentIsLoggedIn,
+        userId: currentUser?.id,
+        alreadyProcessed: gameResultProcessedRef.current,
+        winner: winner?.nickname,
+        loser: loser?.nickname
+      });
+
       if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
         gameResultProcessedRef.current = true;
 
@@ -197,14 +227,25 @@ export default function Home() {
         const isAIGame = state.players.some((p: Player) => p.isAI);
         const gameModeKey = isAIGame ? 'ai-ranked' : 'player-ranked';
 
+        console.log('Saving timeout game result:', {
+          userId: currentUser.id,
+          gameModeKey,
+          result,
+          isAIGame
+        });
+
         try {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
           if (updateResult.success) {
             console.log(`Game result saved (timeout): ${result} in ${gameModeKey} mode`);
+          } else {
+            console.error('Failed to save timeout game result:', updateResult.error);
           }
         } catch (err) {
           console.error('Error saving game result:', err);
         }
+      } else {
+        console.log('Timeout game result not saved - conditions not met');
       }
     });
 

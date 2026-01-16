@@ -161,17 +161,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
+    let mounted = true;
+
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Use getUser() for secure session verification (recommended by Supabase)
+        const { data: { user: authUser }, error } = await supabase.auth.getUser();
 
-        if (session?.user) {
-          await fetchOrCreateDbUser(session.user);
+        if (error) {
+          console.log('No active session or error:', error.message);
+        }
+
+        if (mounted && authUser) {
+          console.log('Session restored for user:', authUser.email);
+          await fetchOrCreateDbUser(authUser);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -180,7 +190,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event);
+        console.log('Auth state changed:', event, session?.user?.email);
+
+        if (!mounted) return;
 
         if (event === 'SIGNED_IN' && session?.user) {
           // 모달 즉시 닫기 (DB 작업 전)
@@ -203,11 +215,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
           setDbUser(null);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          // 토큰 갱신 시에도 사용자 정보 유지
+          console.log('Token refreshed for user:', session.user.email);
+        } else if (event === 'INITIAL_SESSION' && session?.user) {
+          // 초기 세션 로드 (페이지 새로고침 시)
+          console.log('Initial session loaded for user:', session.user.email);
+          if (!user) {
+            await fetchOrCreateDbUser(session.user);
+          }
         }
       }
     );
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);

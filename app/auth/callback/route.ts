@@ -1,33 +1,52 @@
-import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
   const error = requestUrl.searchParams.get('error');
   const errorDescription = requestUrl.searchParams.get('error_description');
+  const origin = requestUrl.origin;
 
   // Handle OAuth errors
   if (error) {
     console.error('OAuth error:', error, errorDescription);
     return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent(errorDescription || error)}`, requestUrl.origin)
+      new URL(`/?error=${encodeURIComponent(errorDescription || error)}`, origin)
     );
   }
 
   if (code) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        flowType: 'pkce',
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true,
-      },
-    });
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return NextResponse.redirect(new URL('/?error=Configuration%20error', origin));
+    }
+
+    const cookieStore = await cookies();
+
+    const supabase = createServerClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {
+              // Ignore errors from Server Components
+            }
+          },
+        },
+      }
+    );
 
     try {
       const { data, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
@@ -35,46 +54,21 @@ export async function GET(request: Request) {
       if (sessionError) {
         console.error('Session exchange error:', sessionError);
         return NextResponse.redirect(
-          new URL(`/?error=${encodeURIComponent(sessionError.message)}`, requestUrl.origin)
+          new URL(`/?error=${encodeURIComponent(sessionError.message)}`, origin)
         );
       }
 
       if (data.session) {
-        // Create response with redirect
-        const response = NextResponse.redirect(new URL('/', requestUrl.origin));
-
-        // Set auth cookies for client-side session persistence
-        const cookieStore = await cookies();
-
-        // Set access token cookie
-        response.cookies.set('sb-access-token', data.session.access_token, {
-          path: '/',
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: data.session.expires_in,
-        });
-
-        // Set refresh token cookie
-        response.cookies.set('sb-refresh-token', data.session.refresh_token, {
-          path: '/',
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 30, // 30 days
-        });
-
         console.log('OAuth login successful for user:', data.session.user.email);
-        return response;
       }
     } catch (err) {
       console.error('Auth callback error:', err);
       return NextResponse.redirect(
-        new URL('/?error=Authentication%20failed', requestUrl.origin)
+        new URL('/?error=Authentication%20failed', origin)
       );
     }
   }
 
   // Redirect to home page after authentication
-  return NextResponse.redirect(new URL('/', requestUrl.origin));
+  return NextResponse.redirect(new URL('/', origin));
 }

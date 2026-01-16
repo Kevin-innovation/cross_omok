@@ -1,22 +1,18 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 // Environment variables (baked in at build time for NEXT_PUBLIC_*)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-// Debug: log configuration status (remove in production)
-if (typeof window !== 'undefined') {
-  console.log('Supabase URL configured:', !!supabaseUrl);
-  console.log('Supabase Key configured:', !!supabaseAnonKey);
-}
 
 // Runtime check helper
 export const isSupabaseConfigured = () => {
   return Boolean(supabaseUrl && supabaseAnonKey);
 };
 
-// Create client - uses placeholder if not configured (for build)
-export const supabase: SupabaseClient = createClient(
+// Create browser client with cookie-based session management
+// This client automatically handles cookies for session persistence
+export const supabase: SupabaseClient = createBrowserClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder'
 );
@@ -121,11 +117,23 @@ export async function updateGameStats(
   gameModeKey: string,
   result: GameResult
 ): Promise<{ success: boolean; error?: string }> {
+  console.log('updateGameStats called:', { userId, gameModeKey, result });
+
   if (!isSupabaseConfigured()) {
+    console.error('Supabase not configured');
     return { success: false, error: 'Supabase not configured' };
   }
 
   try {
+    // Check if user is authenticated
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    console.log('Current auth user:', authUser?.id, 'Requested user:', userId);
+
+    if (!authUser || authUser.id !== userId) {
+      console.error('User not authenticated or ID mismatch');
+      return { success: false, error: 'User not authenticated' };
+    }
+
     // First, get the game mode ID
     const { data: gameMode, error: gameModeError } = await supabase
       .from('game_modes')
@@ -137,6 +145,8 @@ export async function updateGameStats(
       console.error('Game mode not found:', gameModeKey, gameModeError);
       return { success: false, error: 'Game mode not found' };
     }
+
+    console.log('Game mode found:', gameMode);
 
     const gameModeId = gameMode.id;
 
@@ -193,6 +203,7 @@ export async function updateGameStats(
 
     // Insert or update statistics
     if (existingStats) {
+      console.log('Updating existing stats for user:', userId, 'mode:', gameModeId);
       const { error: updateError } = await supabase
         .from('user_statistics')
         .update(newStats)
@@ -201,9 +212,11 @@ export async function updateGameStats(
 
       if (updateError) {
         console.error('Error updating stats:', updateError);
-        return { success: false, error: 'Failed to update statistics' };
+        return { success: false, error: `Failed to update statistics: ${updateError.message}` };
       }
+      console.log('Stats updated successfully');
     } else {
+      console.log('Inserting new stats for user:', userId, 'mode:', gameModeId);
       const { error: insertError } = await supabase
         .from('user_statistics')
         .insert({
@@ -214,11 +227,12 @@ export async function updateGameStats(
 
       if (insertError) {
         console.error('Error inserting stats:', insertError);
-        return { success: false, error: 'Failed to insert statistics' };
+        return { success: false, error: `Failed to insert statistics: ${insertError.message}` };
       }
+      console.log('Stats inserted successfully');
     }
 
-    console.log(`Game stats updated for user ${userId}: ${result}`);
+    console.log(`Game stats updated for user ${userId}: ${result}`, newStats);
     return { success: true };
   } catch (err) {
     console.error('Error in updateGameStats:', err);
