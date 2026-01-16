@@ -43,7 +43,16 @@ export default function AchievementsPage() {
 
     // Fetch user's earned titles and stats if logged in
     if (user?.id) {
-      const [userTitlesResult, statsResult] = await Promise.all([
+      // Get game mode ID first
+      const { data: gameModeData } = await supabase
+        .from('game_modes')
+        .select('id')
+        .eq('mode_key', 'ai-ranked')
+        .single();
+
+      const gameModeId = gameModeData?.id;
+
+      const [userTitlesResult, allStatsResult] = await Promise.all([
         supabase
           .from('user_titles')
           .select('*')
@@ -52,12 +61,35 @@ export default function AchievementsPage() {
           .from('user_statistics')
           .select('*')
           .eq('user_id', user.id)
-          .eq('game_mode_id', 2) // ai-ranked mode
-          .single()
       ]);
 
       userTitles = userTitlesResult.data || [];
-      stats = statsResult.data || null;
+
+      // Find stats for ai-ranked mode, or aggregate all stats
+      const allStats = allStatsResult.data || [];
+      let aiRankedStats = allStats.find(s => s.game_mode_id === gameModeId);
+
+      // If no specific AI stats, aggregate all stats
+      if (!aiRankedStats && allStats.length > 0) {
+        const aggregated = allStats.reduce((acc, s) => ({
+          total_games: acc.total_games + (s.total_games || 0),
+          wins: acc.wins + (s.wins || 0),
+          losses: acc.losses + (s.losses || 0),
+          draws: acc.draws + (s.draws || 0),
+          best_win_streak: Math.max(acc.best_win_streak, s.best_win_streak || 0),
+        }), { total_games: 0, wins: 0, losses: 0, draws: 0, best_win_streak: 0 });
+
+        if (aggregated.total_games > 0) {
+          aiRankedStats = {
+            ...aggregated,
+            win_rate: (aggregated.wins / aggregated.total_games) * 100,
+            user_id: user.id,
+            game_mode_id: gameModeId || 0,
+          } as DbUserStatistics;
+        }
+      }
+
+      stats = aiRankedStats || null;
       setUserStats(stats);
     }
 
