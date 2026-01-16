@@ -44,23 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log('fetchOrCreateDbUser called with:', supabaseUser.id, supabaseUser.email);
 
-      // First try to fetch existing user
-      const { data: existingUser, error: fetchError } = await supabase
+      // First try to fetch existing user by ID
+      const { data: existingUserById } = await supabase
         .from('users')
         .select('*')
         .eq('id', supabaseUser.id)
         .single();
 
-      console.log('Fetch existing user result:', { existingUser, fetchError });
-
-      if (existingUser) {
-        setDbUser(existingUser);
+      if (existingUserById) {
+        console.log('Found user by ID:', existingUserById.email);
+        setDbUser(existingUserById);
         setUser({
-          id: existingUser.id,
-          nickname: existingUser.display_name,
-          email: existingUser.email,
-          photoUrl: existingUser.photo_url || undefined,
-          titleId: existingUser.current_title_id,
+          id: existingUserById.id,
+          nickname: existingUserById.display_name,
+          email: existingUserById.email,
+          photoUrl: existingUserById.photo_url || undefined,
+          titleId: existingUserById.current_title_id,
         });
 
         // Update last login
@@ -72,8 +71,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // If not found by ID, check by email (prevent duplicates)
+      if (supabaseUser.email) {
+        const { data: existingUserByEmail } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', supabaseUser.email)
+          .single();
+
+        if (existingUserByEmail) {
+          console.log('Found existing user by email, updating ID:', existingUserByEmail.email);
+
+          // Update the existing user's ID to match the new auth ID
+          const { data: updatedUser, error: updateError } = await supabase
+            .from('users')
+            .update({
+              id: supabaseUser.id,
+              last_login_at: new Date().toISOString()
+            })
+            .eq('email', supabaseUser.email)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error('Error updating user ID:', updateError);
+            // Use existing user anyway
+            setDbUser(existingUserByEmail);
+            setUser({
+              id: existingUserByEmail.id,
+              nickname: existingUserByEmail.display_name,
+              email: existingUserByEmail.email,
+              photoUrl: existingUserByEmail.photo_url || undefined,
+              titleId: existingUserByEmail.current_title_id,
+            });
+          } else if (updatedUser) {
+            setDbUser(updatedUser);
+            setUser({
+              id: updatedUser.id,
+              nickname: updatedUser.display_name,
+              email: updatedUser.email,
+              photoUrl: updatedUser.photo_url || undefined,
+              titleId: updatedUser.current_title_id,
+            });
+          }
+          return;
+        }
+      }
+
       // If user doesn't exist, create new one
-      // Use auth user id as google_id fallback for email users
       const newUser = {
         id: supabaseUser.id,
         google_id: supabaseUser.user_metadata?.sub || `email_${supabaseUser.id}`,
@@ -90,15 +135,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         last_login_at: new Date().toISOString(),
       };
 
-      console.log('Attempting to create user:', newUser);
+      console.log('Creating new user:', newUser.email);
 
       const { data: createdUser, error: createError } = await supabase
         .from('users')
         .insert(newUser)
         .select()
         .single();
-
-      console.log('Create user result:', { createdUser, createError });
 
       if (createError) {
         console.error('Error creating user:', createError);
