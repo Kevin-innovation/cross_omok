@@ -1,49 +1,145 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, DbLeaderboardCache } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+
+// 랭킹 데이터 타입 (user_statistics + users 조인)
+interface RankingData {
+  id: string;
+  user_id: string;
+  display_name: string;
+  photo_url: string | null;
+  total_games: number;
+  wins: number;
+  win_rate: number;
+  current_title_name: string | null;
+  rank: number;
+}
 
 export default function RankingPage() {
   const { user, isLoggedIn } = useAuth();
-  const [selectedTab, setSelectedTab] = useState<'weekly' | 'monthly' | 'all'>('all');
-  const [rankings, setRankings] = useState<DbLeaderboardCache[]>([]);
-  const [myRanking, setMyRanking] = useState<DbLeaderboardCache | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'pvp' | 'pvai' | 'all'>('all');
+  const [rankings, setRankings] = useState<RankingData[]>([]);
+  const [myRanking, setMyRanking] = useState<RankingData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchRankings = useCallback(async () => {
     setIsLoading(true);
 
-    // Fetch top 50 rankings (game_mode_id = 2 is ai-ranked)
-    const { data: leaderboardData, error } = await supabase
-      .from('leaderboard_cache')
-      .select('*')
-      .eq('game_mode_id', 2) // ai-ranked mode
-      .order('rank', { ascending: true })
-      .limit(50);
+    try {
+      // Get game mode id based on selected tab
+      let gameModeKey = 'pvai'; // default to AI mode
+      if (selectedTab === 'pvp') {
+        gameModeKey = 'pvp';
+      }
 
-    if (error) {
-      console.error('Error fetching rankings:', error);
-      setIsLoading(false);
-      return;
-    }
-
-    setRankings(leaderboardData || []);
-
-    // Fetch my ranking if logged in
-    if (user?.id) {
-      const { data: myData } = await supabase
-        .from('leaderboard_cache')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('game_mode_id', 2)
+      // First get game mode id
+      const { data: gameModeData } = await supabase
+        .from('game_modes')
+        .select('id')
+        .eq('mode_key', gameModeKey)
         .single();
 
-      setMyRanking(myData || null);
+      const gameModeId = gameModeData?.id;
+
+      if (!gameModeId && selectedTab !== 'all') {
+        // Fallback: fetch all statistics
+        setRankings([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch user statistics with user info
+      let query = supabase
+        .from('user_statistics')
+        .select(`
+          user_id,
+          total_games,
+          wins,
+          win_rate,
+          users!inner (
+            id,
+            display_name,
+            photo_url,
+            current_title_id
+          )
+        `)
+        .gt('total_games', 0)
+        .order('win_rate', { ascending: false })
+        .order('wins', { ascending: false })
+        .limit(50);
+
+      if (gameModeId && selectedTab !== 'all') {
+        query = query.eq('game_mode_id', gameModeId);
+      }
+
+      const { data: statsData, error } = await query;
+
+      if (error) {
+        console.error('Error fetching rankings:', error);
+        setRankings([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Transform and rank the data
+      const rankedData: RankingData[] = (statsData || []).map((stat: any, index: number) => ({
+        id: stat.user_id,
+        user_id: stat.user_id,
+        display_name: stat.users?.display_name || 'Unknown',
+        photo_url: stat.users?.photo_url || null,
+        total_games: stat.total_games,
+        wins: stat.wins,
+        win_rate: parseFloat(stat.win_rate) || 0,
+        current_title_name: null, // TODO: fetch title name if needed
+        rank: index + 1,
+      }));
+
+      setRankings(rankedData);
+
+      // Find my ranking if logged in
+      if (user?.id) {
+        const myData = rankedData.find(r => r.user_id === user.id);
+        if (myData) {
+          setMyRanking(myData);
+        } else {
+          // Fetch my stats separately
+          let myQuery = supabase
+            .from('user_statistics')
+            .select('user_id, total_games, wins, win_rate')
+            .eq('user_id', user.id);
+
+          if (gameModeId && selectedTab !== 'all') {
+            myQuery = myQuery.eq('game_mode_id', gameModeId);
+          }
+
+          const { data: myStatsData } = await myQuery.single();
+
+          if (myStatsData && myStatsData.total_games > 0) {
+            setMyRanking({
+              id: user.id,
+              user_id: user.id,
+              display_name: user.nickname || 'Unknown',
+              photo_url: null,
+              total_games: myStatsData.total_games,
+              wins: myStatsData.wins,
+              win_rate: parseFloat(myStatsData.win_rate) || 0,
+              current_title_name: null,
+              rank: 51, // placeholder for ranking outside top 50
+            });
+          } else {
+            setMyRanking(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error in fetchRankings:', err);
+      setRankings([]);
     }
 
     setIsLoading(false);
-  }, [user?.id]);
+  }, [user?.id, user?.nickname, selectedTab]);
 
   useEffect(() => {
     fetchRankings();
@@ -65,13 +161,13 @@ export default function RankingPage() {
           {/* Tab Selector */}
           <div className="flex bg-gray-100 rounded-lg p-1 mb-4">
             {[
-              { id: 'weekly', label: '주간' },
-              { id: 'monthly', label: '월간' },
+              { id: 'pvai', label: 'AI 대전' },
+              { id: 'pvp', label: 'PvP 대전' },
               { id: 'all', label: '전체' },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setSelectedTab(tab.id as 'weekly' | 'monthly' | 'all')}
+                onClick={() => setSelectedTab(tab.id as 'pvp' | 'pvai' | 'all')}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                   selectedTab === tab.id
                     ? 'bg-white text-blue-600 shadow-sm'
@@ -101,7 +197,7 @@ export default function RankingPage() {
                 const isMe = user?.id === rankedUser.user_id;
                 return (
                   <div
-                    key={rankedUser.id}
+                    key={`${rankedUser.user_id}-${rankedUser.rank}`}
                     className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
                       isMe
                         ? 'bg-blue-100 border-2 border-blue-300'

@@ -111,3 +111,143 @@ export interface DbGameMode {
   is_active: boolean;            // BOOLEAN DEFAULT true
   created_at: string;            // TIMESTAMPTZ
 }
+
+// Game result type
+export type GameResult = 'win' | 'lose' | 'draw';
+
+// Update user statistics after a game
+export async function updateGameStats(
+  userId: string,
+  gameModeKey: string,
+  result: GameResult
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { success: false, error: 'Supabase not configured' };
+  }
+
+  try {
+    // First, get the game mode ID
+    const { data: gameMode, error: gameModeError } = await supabase
+      .from('game_modes')
+      .select('id')
+      .eq('mode_key', gameModeKey)
+      .single();
+
+    if (gameModeError || !gameMode) {
+      console.error('Game mode not found:', gameModeKey, gameModeError);
+      return { success: false, error: 'Game mode not found' };
+    }
+
+    const gameModeId = gameMode.id;
+
+    // Check if user statistics exist for this game mode
+    const { data: existingStats, error: fetchError } = await supabase
+      .from('user_statistics')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('game_mode_id', gameModeId)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      // PGRST116 means no rows found, which is OK
+      console.error('Error fetching stats:', fetchError);
+      return { success: false, error: 'Failed to fetch statistics' };
+    }
+
+    // Calculate new statistics
+    const currentStats = existingStats || {
+      total_games: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      current_streak: 0,
+      current_streak_type: null,
+      best_win_streak: 0,
+      best_win_streak_date: null,
+    };
+
+    const newStats = {
+      total_games: currentStats.total_games + 1,
+      wins: currentStats.wins + (result === 'win' ? 1 : 0),
+      draws: currentStats.draws + (result === 'draw' ? 1 : 0),
+      losses: currentStats.losses + (result === 'lose' ? 1 : 0),
+      current_streak: 0,
+      current_streak_type: result as string,
+      best_win_streak: currentStats.best_win_streak,
+      best_win_streak_date: currentStats.best_win_streak_date,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Calculate streak
+    if (result === currentStats.current_streak_type) {
+      newStats.current_streak = currentStats.current_streak + 1;
+    } else {
+      newStats.current_streak = 1;
+    }
+
+    // Update best win streak if needed
+    if (result === 'win' && newStats.current_streak > currentStats.best_win_streak) {
+      newStats.best_win_streak = newStats.current_streak;
+      newStats.best_win_streak_date = new Date().toISOString();
+    }
+
+    // Insert or update statistics
+    if (existingStats) {
+      const { error: updateError } = await supabase
+        .from('user_statistics')
+        .update(newStats)
+        .eq('user_id', userId)
+        .eq('game_mode_id', gameModeId);
+
+      if (updateError) {
+        console.error('Error updating stats:', updateError);
+        return { success: false, error: 'Failed to update statistics' };
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from('user_statistics')
+        .insert({
+          user_id: userId,
+          game_mode_id: gameModeId,
+          ...newStats,
+        });
+
+      if (insertError) {
+        console.error('Error inserting stats:', insertError);
+        return { success: false, error: 'Failed to insert statistics' };
+      }
+    }
+
+    console.log(`Game stats updated for user ${userId}: ${result}`);
+    return { success: true };
+  } catch (err) {
+    console.error('Error in updateGameStats:', err);
+    return { success: false, error: 'Unexpected error' };
+  }
+}
+
+// Get user statistics
+export async function getUserStats(
+  userId: string
+): Promise<{ data: DbUserStatistics[] | null; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { data: null, error: 'Supabase not configured' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('user_statistics')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error fetching user stats:', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data };
+  } catch (err) {
+    console.error('Error in getUserStats:', err);
+    return { data: null, error: 'Unexpected error' };
+  }
+}

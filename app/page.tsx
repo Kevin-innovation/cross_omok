@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { initSocket, getSocket } from '@/lib/socket';
 import GameBoard from '@/components/GameBoard';
 import SpinWheel from '@/components/SpinWheel';
 import { GameState, Player, TurnTime, RoomInfo } from '@/lib/types';
 import { Socket } from 'socket.io-client';
+import { useAuth } from '@/contexts/AuthContext';
+import { updateGameStats, GameResult } from '@/lib/supabase';
 
 export default function Home() {
+  const { user, isLoggedIn } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [roomId, setRoomId] = useState<string>('');
@@ -25,6 +28,25 @@ export default function Home() {
   const [firstPlayer, setFirstPlayer] = useState<number | undefined>();
   const [roomList, setRoomList] = useState<RoomInfo[]>([]);
   const [showRoomList, setShowRoomList] = useState<boolean>(false);
+  const gameResultProcessedRef = useRef<boolean>(false);
+
+  // Refs to track latest auth state for socket event handlers
+  const userRef = useRef(user);
+  const isLoggedInRef = useRef(isLoggedIn);
+
+  // Keep refs updated
+  useEffect(() => {
+    userRef.current = user;
+    isLoggedInRef.current = isLoggedIn;
+  }, [user, isLoggedIn]);
+
+  // 로그인한 사용자의 닉네임을 자동으로 설정
+  useEffect(() => {
+    if (isLoggedIn && user?.nickname && !roomId) {
+      setInputNickname(user.nickname);
+      setNickname(user.nickname);
+    }
+  }, [isLoggedIn, user?.nickname, roomId]);
 
   // 에러 자동 해제
   useEffect(() => {
@@ -77,9 +99,43 @@ export default function Home() {
       setIsMoving(false);
     });
 
-    newSocket.on('gameOver', ({ winner, winningPositions, gameState: state }) => {
+    newSocket.on('gameOver', async ({ winner, winningPositions, gameState: state }) => {
       setGameState(state);
       setIsMoving(false);
+
+      // 게임 결과를 DB에 저장 (로그인한 사용자만)
+      // Use refs to get latest auth state
+      const currentUser = userRef.current;
+      const currentIsLoggedIn = isLoggedInRef.current;
+
+      if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
+        gameResultProcessedRef.current = true;
+
+        // Determine game result from user's perspective
+        let result: GameResult;
+        if (!winner) {
+          result = 'draw';
+        } else if (winner.socketId === newSocket.id) {
+          result = 'win';
+        } else {
+          result = 'lose';
+        }
+
+        // Determine game mode (AI vs player)
+        const isAIGame = state.players.some((p: Player) => p.isAI);
+        const gameModeKey = isAIGame ? 'pvai' : 'pvp';
+
+        try {
+          const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
+          if (updateResult.success) {
+            console.log(`Game result saved: ${result} in ${gameModeKey} mode`);
+          } else {
+            console.error('Failed to save game result:', updateResult.error);
+          }
+        } catch (err) {
+          console.error('Error saving game result:', err);
+        }
+      }
     });
 
     // 재대결 요청
@@ -117,9 +173,39 @@ export default function Home() {
     });
 
     // 시간 초과
-    newSocket.on('timeOver', ({ loser, winner, gameState: state }) => {
+    newSocket.on('timeOver', async ({ loser, winner, gameState: state }) => {
       setGameState(state);
       setError(`${loser.nickname}님의 시간이 초과되었습니다!`);
+
+      // 게임 결과를 DB에 저장 (시간 초과로 인한 종료도 처리)
+      // Use refs to get latest auth state
+      const currentUser = userRef.current;
+      const currentIsLoggedIn = isLoggedInRef.current;
+
+      if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
+        gameResultProcessedRef.current = true;
+
+        // Determine game result from user's perspective
+        let result: GameResult;
+        if (winner.socketId === newSocket.id) {
+          result = 'win';
+        } else {
+          result = 'lose';
+        }
+
+        // Determine game mode (AI vs player)
+        const isAIGame = state.players.some((p: Player) => p.isAI);
+        const gameModeKey = isAIGame ? 'pvai' : 'pvp';
+
+        try {
+          const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
+          if (updateResult.success) {
+            console.log(`Game result saved (timeout): ${result} in ${gameModeKey} mode`);
+          }
+        } catch (err) {
+          console.error('Error saving game result:', err);
+        }
+      }
     });
 
     // 방 목록
@@ -137,6 +223,7 @@ export default function Home() {
       setError(message);
       setIsSpinning(false);
       setFirstPlayer(undefined);
+      gameResultProcessedRef.current = false; // Reset for new game
     });
 
     // 방 자동 삭제 (비활성)
@@ -146,6 +233,7 @@ export default function Home() {
       setRoomId('');
       setIsSpinning(false);
       setFirstPlayer(undefined);
+      gameResultProcessedRef.current = false;
     });
 
     // 초기 연결 상태 설정
@@ -179,8 +267,12 @@ export default function Home() {
     if (!socket || !isConnected || isLoading) return;
     setIsLoading(true);
     setError('');
-    const name = inputNickname.trim() || '게스트1';
+    // 로그인한 사용자는 고정 닉네임 사용, 비로그인은 입력값 또는 기본값
+    const name = isLoggedIn && user?.nickname
+      ? user.nickname
+      : (inputNickname.trim() || '게스트1');
     setNickname(name);
+    gameResultProcessedRef.current = false; // Reset for new game
     socket.emit('createRoom', { nickname: name, turnTime: selectedTurnTime });
   };
 
@@ -192,8 +284,12 @@ export default function Home() {
     }
     setIsLoading(true);
     setError('');
-    const name = inputNickname.trim() || '게스트2';
+    // 로그인한 사용자는 고정 닉네임 사용
+    const name = isLoggedIn && user?.nickname
+      ? user.nickname
+      : (inputNickname.trim() || '게스트2');
     setNickname(name);
+    gameResultProcessedRef.current = false;
     socket.emit('joinRoom', { roomId: inputRoomId.toUpperCase(), nickname: name });
   };
 
@@ -201,8 +297,12 @@ export default function Home() {
     if (!socket || !isConnected || isLoading) return;
     setIsLoading(true);
     setError('');
-    const name = inputNickname.trim() || '게스트2';
+    // 로그인한 사용자는 고정 닉네임 사용
+    const name = isLoggedIn && user?.nickname
+      ? user.nickname
+      : (inputNickname.trim() || '게스트2');
     setNickname(name);
+    gameResultProcessedRef.current = false;
     socket.emit('joinRoom', { roomId: selectedRoomId, nickname: name });
     setShowRoomList(false);
   };
@@ -307,16 +407,24 @@ export default function Home() {
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              닉네임 (선택사항)
+              {isLoggedIn ? '닉네임 (로그인됨)' : '닉네임 (선택사항)'}
             </label>
-            <input
-              type="text"
-              value={inputNickname}
-              onChange={(e) => setInputNickname(e.target.value)}
-              placeholder="닉네임을 입력하세요"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
-              maxLength={20}
-            />
+            {isLoggedIn && user?.nickname ? (
+              <div className="w-full px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 font-medium flex items-center gap-2">
+                <span className="text-green-500">✓</span>
+                {user.nickname}
+                <span className="text-xs text-blue-500 ml-auto">자동 설정됨</span>
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={inputNickname}
+                onChange={(e) => setInputNickname(e.target.value)}
+                placeholder="닉네임을 입력하세요"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                maxLength={20}
+              />
+            )}
           </div>
 
           <div className="mb-6">
