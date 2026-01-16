@@ -123,7 +123,7 @@ export default function Home() {
 
         // Determine game mode (AI vs player)
         const isAIGame = state.players.some((p: Player) => p.isAI);
-        const gameModeKey = isAIGame ? 'pvai' : 'pvp';
+        const gameModeKey = isAIGame ? 'ai-ranked' : 'player-ranked';
 
         try {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
@@ -195,7 +195,7 @@ export default function Home() {
 
         // Determine game mode (AI vs player)
         const isAIGame = state.players.some((p: Player) => p.isAI);
-        const gameModeKey = isAIGame ? 'pvai' : 'pvp';
+        const gameModeKey = isAIGame ? 'ai-ranked' : 'player-ranked';
 
         try {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);

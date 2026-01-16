@@ -19,7 +19,7 @@ interface RankingData {
 
 export default function RankingPage() {
   const { user, isLoggedIn } = useAuth();
-  const [selectedTab, setSelectedTab] = useState<'pvp' | 'pvai' | 'all'>('all');
+  const [selectedTab, setSelectedTab] = useState<'player-ranked' | 'ai-ranked' | 'all'>('all');
   const [rankings, setRankings] = useState<RankingData[]>([]);
   const [myRanking, setMyRanking] = useState<RankingData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -29,9 +29,9 @@ export default function RankingPage() {
 
     try {
       // Get game mode id based on selected tab
-      let gameModeKey = 'pvai'; // default to AI mode
-      if (selectedTab === 'pvp') {
-        gameModeKey = 'pvp';
+      let gameModeKey = 'ai-ranked'; // default to AI mode
+      if (selectedTab === 'player-ranked') {
+        gameModeKey = 'player-ranked';
       }
 
       // First get game mode id
@@ -161,13 +161,13 @@ export default function RankingPage() {
           {/* Tab Selector */}
           <div className="flex bg-gray-100 rounded-lg p-1 mb-4">
             {[
-              { id: 'pvai', label: 'AI 대전' },
-              { id: 'pvp', label: 'PvP 대전' },
+              { id: 'ai-ranked', label: 'AI 대전' },
+              { id: 'player-ranked', label: 'PvP 대전' },
               { id: 'all', label: '전체' },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setSelectedTab(tab.id as 'pvp' | 'pvai' | 'all')}
+                onClick={() => setSelectedTab(tab.id as 'player-ranked' | 'ai-ranked' | 'all')}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                   selectedTab === tab.id
                     ? 'bg-white text-blue-600 shadow-sm'
