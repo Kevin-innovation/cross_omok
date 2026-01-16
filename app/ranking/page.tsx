@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -23,127 +23,146 @@ export default function RankingPage() {
   const [rankings, setRankings] = useState<RankingData[]>([]);
   const [myRanking, setMyRanking] = useState<RankingData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  const fetchRankings = useCallback(async () => {
-    setIsLoading(true);
-
-    try {
-      // Get game mode id based on selected tab
-      let gameModeKey = 'ai-ranked'; // default to AI mode
-      if (selectedTab === 'player-ranked') {
-        gameModeKey = 'player-ranked';
-      }
-
-      // First get game mode id
-      const { data: gameModeData } = await supabase
-        .from('game_modes')
-        .select('id')
-        .eq('mode_key', gameModeKey)
-        .single();
-
-      const gameModeId = gameModeData?.id;
-
-      if (!gameModeId && selectedTab !== 'all') {
-        // Fallback: fetch all statistics
-        setRankings([]);
-        setIsLoading(false);
-        return;
-      }
-
-      // Fetch user statistics with user info
-      let query = supabase
-        .from('user_statistics')
-        .select(`
-          user_id,
-          total_games,
-          wins,
-          win_rate,
-          users!inner (
-            id,
-            display_name,
-            photo_url,
-            current_title_id
-          )
-        `)
-        .gt('total_games', 0)
-        .order('win_rate', { ascending: false })
-        .order('wins', { ascending: false })
-        .limit(50);
-
-      if (gameModeId && selectedTab !== 'all') {
-        query = query.eq('game_mode_id', gameModeId);
-      }
-
-      const { data: statsData, error } = await query;
-
-      if (error) {
-        console.error('Error fetching rankings:', error);
-        setRankings([]);
-        setIsLoading(false);
-        return;
-      }
-
-      // Transform and rank the data
-      const rankedData: RankingData[] = (statsData || []).map((stat: any, index: number) => ({
-        id: stat.user_id,
-        user_id: stat.user_id,
-        display_name: stat.users?.display_name || 'Unknown',
-        photo_url: stat.users?.photo_url || null,
-        total_games: stat.total_games,
-        wins: stat.wins,
-        win_rate: parseFloat(stat.win_rate) || 0,
-        current_title_name: null, // TODO: fetch title name if needed
-        rank: index + 1,
-      }));
-
-      setRankings(rankedData);
-
-      // Find my ranking if logged in
-      if (user?.id) {
-        const myData = rankedData.find(r => r.user_id === user.id);
-        if (myData) {
-          setMyRanking(myData);
-        } else {
-          // Fetch my stats separately
-          let myQuery = supabase
-            .from('user_statistics')
-            .select('user_id, total_games, wins, win_rate')
-            .eq('user_id', user.id);
-
-          if (gameModeId && selectedTab !== 'all') {
-            myQuery = myQuery.eq('game_mode_id', gameModeId);
-          }
-
-          const { data: myStatsData } = await myQuery.single();
-
-          if (myStatsData && myStatsData.total_games > 0) {
-            setMyRanking({
-              id: user.id,
-              user_id: user.id,
-              display_name: user.nickname || 'Unknown',
-              photo_url: null,
-              total_games: myStatsData.total_games,
-              wins: myStatsData.wins,
-              win_rate: parseFloat(myStatsData.win_rate) || 0,
-              current_title_name: null,
-              rank: 51, // placeholder for ranking outside top 50
-            });
-          } else {
-            setMyRanking(null);
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error in fetchRankings:', err);
-      setRankings([]);
-    }
-
-    setIsLoading(false);
-  }, [user?.id, user?.nickname, selectedTab]);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const fetchRankings = async () => {
+      if (!mountedRef.current) return;
+      setIsLoading(true);
+
+      try {
+        // Get game mode id based on selected tab
+        let gameModeKey = 'ai-ranked'; // default to AI mode
+        if (selectedTab === 'player-ranked') {
+          gameModeKey = 'player-ranked';
+        }
+
+        // First get game mode id
+        const { data: gameModeData } = await supabase
+          .from('game_modes')
+          .select('id')
+          .eq('mode_key', gameModeKey)
+          .single();
+
+        if (!mountedRef.current) return;
+
+        const gameModeId = gameModeData?.id;
+
+        if (!gameModeId && selectedTab !== 'all') {
+          // Fallback: fetch all statistics
+          setRankings([]);
+          setIsLoading(false);
+          return;
+        }
+
+        // Fetch user statistics with user info
+        let query = supabase
+          .from('user_statistics')
+          .select(`
+            user_id,
+            total_games,
+            wins,
+            win_rate,
+            users!inner (
+              id,
+              display_name,
+              photo_url,
+              current_title_id
+            )
+          `)
+          .gt('total_games', 0)
+          .order('win_rate', { ascending: false })
+          .order('wins', { ascending: false })
+          .limit(50);
+
+        if (gameModeId && selectedTab !== 'all') {
+          query = query.eq('game_mode_id', gameModeId);
+        }
+
+        const { data: statsData, error } = await query;
+
+        if (!mountedRef.current) return;
+
+        if (error) {
+          console.error('Error fetching rankings:', error);
+          setRankings([]);
+          setIsLoading(false);
+          return;
+        }
+
+        // Transform and rank the data
+        const rankedData: RankingData[] = (statsData || []).map((stat: any, index: number) => ({
+          id: stat.user_id,
+          user_id: stat.user_id,
+          display_name: stat.users?.display_name || 'Unknown',
+          photo_url: stat.users?.photo_url || null,
+          total_games: stat.total_games,
+          wins: stat.wins,
+          win_rate: parseFloat(stat.win_rate) || 0,
+          current_title_name: null,
+          rank: index + 1,
+        }));
+
+        setRankings(rankedData);
+
+        // Find my ranking if logged in
+        if (user?.id) {
+          const myData = rankedData.find(r => r.user_id === user.id);
+          if (myData) {
+            setMyRanking(myData);
+          } else {
+            // Fetch my stats separately
+            let myQuery = supabase
+              .from('user_statistics')
+              .select('user_id, total_games, wins, win_rate')
+              .eq('user_id', user.id);
+
+            if (gameModeId && selectedTab !== 'all') {
+              myQuery = myQuery.eq('game_mode_id', gameModeId);
+            }
+
+            const { data: myStatsData } = await myQuery.single();
+
+            if (!mountedRef.current) return;
+
+            if (myStatsData && myStatsData.total_games > 0) {
+              setMyRanking({
+                id: user.id,
+                user_id: user.id,
+                display_name: user.nickname || 'Unknown',
+                photo_url: null,
+                total_games: myStatsData.total_games,
+                wins: myStatsData.wins,
+                win_rate: parseFloat(myStatsData.win_rate) || 0,
+                current_title_name: null,
+                rank: 51,
+              });
+            } else {
+              setMyRanking(null);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error in fetchRankings:', err);
+        if (mountedRef.current) {
+          setRankings([]);
+        }
+      }
+
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    };
+
     fetchRankings();
-  }, [fetchRankings]);
+  }, [user?.id, user?.nickname, selectedTab]);
 
   const getRankBadge = (rank: number) => {
     if (rank === 1) return { bg: 'bg-yellow-400', text: 'text-yellow-900', icon: '🥇' };

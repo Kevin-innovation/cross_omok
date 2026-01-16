@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase, DbUserStatistics, DbTitle, DbLeaderboardCache } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -10,81 +10,100 @@ export default function ProfilePage() {
   const [currentTitle, setCurrentTitle] = useState<DbTitle | null>(null);
   const [ranking, setRanking] = useState<DbLeaderboardCache | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    if (user?.id) {
-      fetchProfileData();
-    } else {
-      setIsLoading(false);
-    }
-  }, [user?.id]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  const fetchProfileData = async () => {
-    if (!user?.id) return;
-
-    setIsLoading(true);
-
-    try {
-      // First get the game mode ID for ai-ranked
-      const { data: gameModeData } = await supabase
-        .from('game_modes')
-        .select('id')
-        .eq('mode_key', 'ai-ranked')
-        .single();
-
-      const gameModeId = gameModeData?.id;
-
-      // Fetch all user statistics (for all game modes)
-      const { data: allStats } = await supabase
-        .from('user_statistics')
-        .select('*')
-        .eq('user_id', user.id);
-
-      // Find the AI ranked stats or calculate totals
-      let aiRankedStats = allStats?.find(s => s.game_mode_id === gameModeId) || null;
-
-      // If no AI stats but has other stats, aggregate them
-      if (!aiRankedStats && allStats && allStats.length > 0) {
-        const totalStats = allStats.reduce((acc, s) => ({
-          total_games: acc.total_games + (s.total_games || 0),
-          wins: acc.wins + (s.wins || 0),
-          losses: acc.losses + (s.losses || 0),
-          draws: acc.draws + (s.draws || 0),
-          current_streak: Math.max(acc.current_streak, s.current_streak || 0),
-          best_win_streak: Math.max(acc.best_win_streak, s.best_win_streak || 0),
-        }), { total_games: 0, wins: 0, losses: 0, draws: 0, current_streak: 0, best_win_streak: 0 });
-
-        if (totalStats.total_games > 0) {
-          aiRankedStats = {
-            ...totalStats,
-            win_rate: (totalStats.wins / totalStats.total_games) * 100,
-            user_id: user.id,
-            game_mode_id: gameModeId || 0,
-          } as any;
-        }
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      if (!user?.id) {
+        setIsLoading(false);
+        return;
       }
 
-      setStats(aiRankedStats);
+      if (!mountedRef.current) return;
+      setIsLoading(true);
 
-      // Fetch current title if user has one
-      if (dbUser?.current_title_id) {
-        const { data: titleData } = await supabase
-          .from('titles')
-          .select('*')
-          .eq('id', dbUser.current_title_id)
+      try {
+        // First get the game mode ID for ai-ranked
+        const { data: gameModeData } = await supabase
+          .from('game_modes')
+          .select('id')
+          .eq('mode_key', 'ai-ranked')
           .single();
-        setCurrentTitle(titleData || null);
+
+        if (!mountedRef.current) return;
+
+        const gameModeId = gameModeData?.id;
+
+        // Fetch all user statistics (for all game modes)
+        const { data: allStats } = await supabase
+          .from('user_statistics')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (!mountedRef.current) return;
+
+        // Find the AI ranked stats or calculate totals
+        let aiRankedStats = allStats?.find(s => s.game_mode_id === gameModeId) || null;
+
+        // If no AI stats but has other stats, aggregate them
+        if (!aiRankedStats && allStats && allStats.length > 0) {
+          const totalStats = allStats.reduce((acc, s) => ({
+            total_games: acc.total_games + (s.total_games || 0),
+            wins: acc.wins + (s.wins || 0),
+            losses: acc.losses + (s.losses || 0),
+            draws: acc.draws + (s.draws || 0),
+            current_streak: Math.max(acc.current_streak, s.current_streak || 0),
+            best_win_streak: Math.max(acc.best_win_streak, s.best_win_streak || 0),
+          }), { total_games: 0, wins: 0, losses: 0, draws: 0, current_streak: 0, best_win_streak: 0 });
+
+          if (totalStats.total_games > 0) {
+            aiRankedStats = {
+              ...totalStats,
+              win_rate: (totalStats.wins / totalStats.total_games) * 100,
+              user_id: user.id,
+              game_mode_id: gameModeId || 0,
+            } as any;
+          }
+        }
+
+        setStats(aiRankedStats);
+
+        // Fetch current title if user has one
+        if (dbUser?.current_title_id) {
+          const { data: titleData } = await supabase
+            .from('titles')
+            .select('*')
+            .eq('id', dbUser.current_title_id)
+            .single();
+
+          if (mountedRef.current) {
+            setCurrentTitle(titleData || null);
+          }
+        }
+
+        // Ranking is optional - leaderboard_cache may not be populated
+        if (mountedRef.current) {
+          setRanking(null);
+        }
+
+      } catch (err) {
+        console.error('Error fetching profile data:', err);
       }
 
-      // Ranking is optional - leaderboard_cache may not be populated
-      setRanking(null);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    };
 
-    } catch (err) {
-      console.error('Error fetching profile data:', err);
-    }
-
-    setIsLoading(false);
-  };
+    fetchProfileData();
+  }, [user?.id, dbUser?.current_title_id]);
 
   if (!isLoggedIn) {
     return (
