@@ -244,13 +244,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        console.error('Sign in error:', error);
         return { error: error.message };
+      }
+
+      // 로그인 성공 - 세션과 사용자 정보 확인
+      if (data.session && data.user) {
+        console.log('Sign in successful, user:', data.user.email);
+        // 직접 사용자 정보 설정 (onAuthStateChange가 늦게 호출될 수 있으므로)
+        await fetchOrCreateDbUser(data.user);
+        setIsLoginModalOpen(false);
+        setIsSignupModalOpen(false);
       }
 
       return { error: null };
