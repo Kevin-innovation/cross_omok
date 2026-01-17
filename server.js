@@ -31,23 +31,25 @@ function validateNickname(nickname) {
 
 // 게임 방 클래스
 class GameRoom {
-  constructor(roomId, turnTime = 30) {
+  constructor(roomId, turnTime = 30, isPracticeMode = false) {
     this.roomId = roomId;
     this.players = [];
     this.board = Array(6).fill(null).map(() => Array(7).fill(null));
     this.currentPlayer = 0;
     this.gameStatus = 'waiting'; // waiting, spinning, playing, finished
     this.winner = null;
-    this.turnTime = turnTime; // 10, 20, 30 seconds
+    this.turnTime = isPracticeMode ? 0 : turnTime; // 연습 모드는 시간 제한 없음
     this.currentTurnTimer = null;
     this.currentTurnStartTime = null;
-    this.remainingTime = turnTime;
+    this.remainingTime = isPracticeMode ? 0 : turnTime;
     this.isSpinning = false;
     this.lastMove = null; // 마지막 착수 위치
     this.winningPositions = []; // 승리한 위치들
     this.rematchRequests = []; // 재대결 요청한 플레이어들
     this.hasAI = false; // AI 플레이어 존재 여부
     this.lastActivity = Date.now(); // 마지막 활동 시간
+    this.isPracticeMode = isPracticeMode; // 연습 모드 여부
+    this.moveHistory = []; // 착수 이력 (되돌리기용)
   }
 
   // 활동 시간 업데이트
@@ -124,6 +126,9 @@ class GameRoom {
 
   // 턴 타이머 시작
   startTurnTimer() {
+    // 연습 모드는 타이머 없음
+    if (this.isPracticeMode) return;
+
     this.clearTurnTimer();
     this.currentTurnStartTime = Date.now();
     this.remainingTime = this.turnTime;
@@ -202,6 +207,9 @@ class GameRoom {
 
     // 마지막 착수 위치 저장
     this.lastMove = { row, col: column };
+
+    // 착수 이력 저장 (되돌리기용)
+    this.moveHistory.push({ row, col: column, color, player: playerIndex });
 
     // 활동 시간 업데이트
     this.updateActivity();
@@ -338,10 +346,53 @@ class GameRoom {
     this.winner = null;
     this.clearTurnTimer();
     this.isSpinning = false;
-    this.remainingTime = this.turnTime;
+    this.remainingTime = this.isPracticeMode ? 0 : this.turnTime;
     this.lastMove = null;
     this.winningPositions = [];
     this.rematchRequests = [];
+    this.moveHistory = [];
+  }
+
+  // 되돌리기 (연습 모드 전용)
+  undoMove() {
+    if (!this.isPracticeMode) {
+      return { success: false, error: '연습 모드에서만 되돌리기가 가능합니다' };
+    }
+
+    if (this.gameStatus === 'finished') {
+      return { success: false, error: '게임이 종료되었습니다' };
+    }
+
+    // AI 모드에서는 2수 (플레이어 + AI) 되돌리기
+    const movesToUndo = this.hasAI ? 2 : 1;
+
+    if (this.moveHistory.length < movesToUndo) {
+      return { success: false, error: '되돌릴 수가 없습니다' };
+    }
+
+    // 지정된 수만큼 되돌리기
+    for (let i = 0; i < movesToUndo && this.moveHistory.length > 0; i++) {
+      const lastMove = this.moveHistory.pop();
+      this.board[lastMove.row][lastMove.col] = null;
+    }
+
+    // 마지막 착수 위치 업데이트
+    if (this.moveHistory.length > 0) {
+      const prevMove = this.moveHistory[this.moveHistory.length - 1];
+      this.lastMove = { row: prevMove.row, col: prevMove.col };
+    } else {
+      this.lastMove = null;
+    }
+
+    // 현재 플레이어 업데이트 (플레이어 턴으로 돌아감)
+    if (this.hasAI) {
+      // AI 모드: 항상 플레이어 턴으로
+      const playerIndex = this.players.findIndex(p => !p.isAI);
+      this.currentPlayer = playerIndex >= 0 ? playerIndex : 0;
+    }
+
+    this.updateActivity();
+    return { success: true };
   }
 
   // AI 착수 로직 - Minimax 알고리즘
@@ -566,11 +617,13 @@ class GameRoom {
       gameStatus: this.gameStatus,
       winner: this.winner,
       turnTime: this.turnTime,
-      remainingTime: this.getRemainingTime(),
+      remainingTime: this.isPracticeMode ? 0 : this.getRemainingTime(),
       isSpinning: this.isSpinning,
       lastMove: this.lastMove,
       winningPositions: this.winningPositions,
-      rematchRequests: this.rematchRequests
+      rematchRequests: this.rematchRequests,
+      isPracticeMode: this.isPracticeMode,
+      canUndo: this.isPracticeMode && this.moveHistory.length > 0 && this.gameStatus === 'playing'
     };
   }
 
@@ -642,6 +695,9 @@ app.prepare().then(() => {
 
   // 방별 타이머 시작
   function startRoomTimer(roomId, room) {
+    // 연습 모드는 타이머 없음
+    if (room.isPracticeMode) return;
+
     // 기존 타이머 정리
     if (roomTimers.has(roomId)) {
       clearInterval(roomTimers.get(roomId));
@@ -777,17 +833,20 @@ app.prepare().then(() => {
     console.log('Client connected:', socket.id);
 
     // 방 생성
-    socket.on('createRoom', ({ nickname, turnTime = 30 }) => {
+    socket.on('createRoom', ({ nickname, turnTime = 30, isPracticeMode = false }) => {
       try {
         const roomId = generateRoomId();
-        const room = new GameRoom(roomId, turnTime);
+        const room = new GameRoom(roomId, turnTime, isPracticeMode);
         room.addPlayer(socket.id, nickname);
         rooms.set(roomId, room);
 
         socket.join(roomId);
         socket.emit('roomCreated', { roomId, state: room.getState() });
-        io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
-        console.log(`Room created: ${roomId} by ${socket.id} with ${turnTime}s turn time`);
+        if (!isPracticeMode) {
+          // 연습 모드는 방 목록에 표시하지 않음
+          io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
+        }
+        console.log(`Room created: ${roomId} by ${socket.id} with ${turnTime}s turn time, practice mode: ${isPracticeMode}`);
       } catch (error) {
         console.error('Error creating room:', error);
         socket.emit('error', { message: '방 생성에 실패했습니다' });
@@ -905,6 +964,23 @@ app.prepare().then(() => {
           // AI 턴이면 자동 착수
           makeAIMove(roomId, room);
         }
+      } else {
+        socket.emit('error', { message: result.error });
+      }
+    });
+
+    // 되돌리기 (연습 모드 전용)
+    socket.on('undoMove', (roomId) => {
+      const room = rooms.get(roomId);
+      if (!room) {
+        socket.emit('error', { message: '방을 찾을 수 없습니다' });
+        return;
+      }
+
+      const result = room.undoMove();
+      if (result.success) {
+        io.to(roomId).emit('gameState', room.getState());
+        console.log(`Move undone in room ${roomId}`);
       } else {
         socket.emit('error', { message: result.error });
       }

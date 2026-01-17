@@ -1,6 +1,39 @@
 # Connect-Four 개발 변경 이력
 
-최종 업데이트: 2026-01-16
+최종 업데이트: 2026-01-17
+
+---
+
+## 2026-01-17 세션 작업 내역
+
+### 1. 칭호 시스템 구현
+
+**기능**:
+- 게임 종료 시 자동 칭호 획득 체크 (`checkAndAwardTitles`)
+- 대표 칭호 설정 UI (프로필 페이지에서 칭호 변경 가능)
+- 랭킹 페이지에 사용자 칭호 표시
+- 플레이 화면에 내 칭호 표시
+
+**변경 파일**:
+- `lib/supabase.ts` - `checkAndAwardTitles`, `setUserTitle`, `getUserTitles` 함수 추가
+- `app/page.tsx` - 게임 종료 시 칭호 체크, 플레이 화면에 칭호 표시
+- `app/ranking/page.tsx` - 랭킹에 칭호 표시 (색상 포함)
+- `app/profile/page.tsx` - 대표 칭호 설정 UI 및 모달
+
+---
+
+### 2. AI 연습 모드 구현
+
+**기능**:
+- 시간 제한 없음 (타이머 비활성화)
+- 되돌리기 기능 (AI 수까지 같이 되돌림)
+- 기록 미반영 (통계/랭킹에 영향 없음)
+- 자동 AI 추가 및 게임 시작
+
+**변경 파일**:
+- `server.js` - `isPracticeMode` 플래그, `undoMove` 함수, 타이머 스킵 로직
+- `lib/types.ts` - `isPracticeMode`, `canUndo` 타입 추가
+- `app/page.tsx` - 연습 모드 버튼, 되돌리기 버튼, 자동 AI 추가
 
 ---
 

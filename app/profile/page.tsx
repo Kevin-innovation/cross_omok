@@ -1,15 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { supabase, DbUserStatistics, DbTitle, DbLeaderboardCache } from '@/lib/supabase';
+import { supabase, DbUserStatistics, DbTitle, DbLeaderboardCache, getUserTitles, setUserTitle } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function ProfilePage() {
-  const { user, dbUser, isLoggedIn, openLoginModal, signOut } = useAuth();
+  const { user, dbUser, isLoggedIn, openLoginModal, signOut, refreshDbUser } = useAuth();
   const [stats, setStats] = useState<DbUserStatistics | null>(null);
   const [currentTitle, setCurrentTitle] = useState<DbTitle | null>(null);
   const [ranking, setRanking] = useState<DbLeaderboardCache | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [allTitles, setAllTitles] = useState<DbTitle[]>([]);
+  const [acquiredTitleIds, setAcquiredTitleIds] = useState<number[]>([]);
+  const [showTitleModal, setShowTitleModal] = useState(false);
+  const [isSettingTitle, setIsSettingTitle] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -86,6 +90,15 @@ export default function ProfilePage() {
           if (mountedRef.current) {
             setCurrentTitle(titleData || null);
           }
+        } else {
+          setCurrentTitle(null);
+        }
+
+        // Fetch all titles and acquired titles
+        const { titles, acquiredIds } = await getUserTitles(user.id);
+        if (mountedRef.current) {
+          setAllTitles(titles);
+          setAcquiredTitleIds(acquiredIds);
         }
 
         // Ranking is optional - leaderboard_cache may not be populated
@@ -264,6 +277,35 @@ export default function ProfilePage() {
             </div>
           )}
 
+          {/* Title Section */}
+          <div className="bg-purple-50 rounded-xl p-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-purple-700">대표 칭호</span>
+              <button
+                onClick={() => setShowTitleModal(true)}
+                className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+              >
+                칭호 변경
+              </button>
+            </div>
+            {currentTitle ? (
+              <div
+                className="inline-block px-3 py-1.5 rounded-full font-medium"
+                style={{
+                  backgroundColor: currentTitle.color_hex ? `${currentTitle.color_hex}30` : '#e9d5ff',
+                  color: currentTitle.color_hex || '#7c3aed',
+                }}
+              >
+                {currentTitle.display_name}
+              </div>
+            ) : (
+              <p className="text-sm text-purple-500">칭호가 설정되지 않았습니다</p>
+            )}
+            <p className="text-xs text-purple-400 mt-2">
+              획득한 칭호: {acquiredTitleIds.length} / {allTitles.length}
+            </p>
+          </div>
+
           {/* Actions */}
           <div className="space-y-2">
             <button
@@ -278,6 +320,121 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Title Selection Modal */}
+      {showTitleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">칭호 선택</h2>
+              <button
+                onClick={() => setShowTitleModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Clear title option */}
+            <button
+              onClick={async () => {
+                if (!user?.id || isSettingTitle) return;
+                setIsSettingTitle(true);
+                const result = await setUserTitle(user.id, null);
+                if (result.success) {
+                  setCurrentTitle(null);
+                  await refreshDbUser();
+                }
+                setIsSettingTitle(false);
+                setShowTitleModal(false);
+              }}
+              disabled={isSettingTitle}
+              className={`w-full p-3 mb-2 rounded-xl border-2 transition-colors ${
+                !currentTitle
+                  ? 'border-purple-500 bg-purple-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="text-sm text-gray-600">칭호 없음</span>
+            </button>
+
+            {/* Title list */}
+            <div className="space-y-2">
+              {allTitles.map((title) => {
+                const isAcquired = acquiredTitleIds.includes(title.id);
+                const isSelected = currentTitle?.id === title.id;
+
+                return (
+                  <button
+                    key={title.id}
+                    onClick={async () => {
+                      if (!isAcquired || !user?.id || isSettingTitle) return;
+                      setIsSettingTitle(true);
+                      const result = await setUserTitle(user.id, title.id);
+                      if (result.success) {
+                        setCurrentTitle(title);
+                        await refreshDbUser();
+                      }
+                      setIsSettingTitle(false);
+                      setShowTitleModal(false);
+                    }}
+                    disabled={!isAcquired || isSettingTitle}
+                    className={`w-full p-3 rounded-xl border-2 transition-colors text-left ${
+                      isSelected
+                        ? 'border-purple-500 bg-purple-50'
+                        : isAcquired
+                        ? 'border-gray-200 hover:border-purple-300'
+                        : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div
+                          className="font-medium"
+                          style={{ color: isAcquired ? (title.color_hex || '#374151') : '#9ca3af' }}
+                        >
+                          {title.display_name}
+                          {isSelected && <span className="ml-2 text-purple-500">✓</span>}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">{title.description}</div>
+                      </div>
+                      {!isAcquired && (
+                        <span className="text-xs px-2 py-1 bg-gray-200 text-gray-500 rounded-full">
+                          미획득
+                        </span>
+                      )}
+                    </div>
+                    {/* Rarity badge */}
+                    <div className="mt-2">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full ${
+                          title.rarity === 'legendary'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : title.rarity === 'epic'
+                            ? 'bg-purple-100 text-purple-700'
+                            : title.rarity === 'rare'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {title.rarity === 'legendary' ? '전설' :
+                         title.rarity === 'epic' ? '영웅' :
+                         title.rarity === 'rare' ? '희귀' : '일반'}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {allTitles.length === 0 && (
+              <p className="text-center text-gray-500 py-4">등록된 칭호가 없습니다.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

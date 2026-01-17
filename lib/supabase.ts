@@ -265,3 +265,211 @@ export async function getUserStats(
     return { data: null, error: 'Unexpected error' };
   }
 }
+
+// Check and award titles based on user stats
+export async function checkAndAwardTitles(
+  userId: string
+): Promise<{ newTitles: DbTitle[]; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { newTitles: [], error: 'Supabase not configured' };
+  }
+
+  try {
+    // Get all user statistics
+    const { data: allStats } = await supabase
+      .from('user_statistics')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (!allStats || allStats.length === 0) {
+      return { newTitles: [] };
+    }
+
+    // Calculate aggregated stats
+    const totalStats = allStats.reduce((acc, s) => ({
+      total_games: acc.total_games + (s.total_games || 0),
+      wins: acc.wins + (s.wins || 0),
+      losses: acc.losses + (s.losses || 0),
+      draws: acc.draws + (s.draws || 0),
+      best_win_streak: Math.max(acc.best_win_streak, s.best_win_streak || 0),
+    }), { total_games: 0, wins: 0, losses: 0, draws: 0, best_win_streak: 0 });
+
+    const winRate = totalStats.total_games > 0
+      ? (totalStats.wins / totalStats.total_games) * 100
+      : 0;
+
+    // Get AI mode stats specifically
+    const { data: aiMode } = await supabase
+      .from('game_modes')
+      .select('id')
+      .eq('mode_key', 'ai-ranked')
+      .single();
+
+    const aiStats = allStats.find(s => s.game_mode_id === aiMode?.id);
+    const aiWins = aiStats?.wins || 0;
+
+    // Get all titles
+    const { data: allTitles } = await supabase
+      .from('titles')
+      .select('*')
+      .eq('is_active', true);
+
+    if (!allTitles) {
+      return { newTitles: [] };
+    }
+
+    // Get already acquired titles
+    const { data: acquiredTitles } = await supabase
+      .from('user_titles')
+      .select('title_id')
+      .eq('user_id', userId);
+
+    const acquiredTitleIds = new Set(acquiredTitles?.map(t => t.title_id) || []);
+
+    // Check each title condition
+    const newTitles: DbTitle[] = [];
+
+    for (const title of allTitles) {
+      if (acquiredTitleIds.has(title.id)) continue;
+
+      const condition = title.condition_json as any;
+      let earned = false;
+
+      switch (condition.type) {
+        case 'win_rate':
+          if (totalStats.total_games >= (condition.min_games || 0) &&
+              winRate >= condition.min &&
+              winRate < (condition.max ?? 101)) {
+            earned = true;
+          }
+          break;
+
+        case 'ai_wins':
+          if (aiWins >= condition.min) {
+            earned = true;
+          }
+          break;
+
+        case 'streak':
+          if (totalStats.best_win_streak >= condition.min) {
+            earned = true;
+          }
+          break;
+
+        case 'total_games':
+          if (totalStats.total_games >= condition.min) {
+            earned = true;
+          }
+          break;
+
+        case 'draws':
+          if (totalStats.draws >= condition.min) {
+            earned = true;
+          }
+          break;
+
+        // Special conditions - simplified versions
+        case 'flawless':
+          if (totalStats.total_games >= condition.min_games &&
+              totalStats.losses === 0 && totalStats.draws === 0) {
+            earned = true;
+          }
+          break;
+      }
+
+      if (earned) {
+        // Award the title
+        const { error: insertError } = await supabase
+          .from('user_titles')
+          .insert({
+            user_id: userId,
+            title_id: title.id,
+          });
+
+        if (!insertError) {
+          newTitles.push(title);
+          console.log(`Awarded title: ${title.display_name} to user ${userId}`);
+        }
+      }
+    }
+
+    return { newTitles };
+  } catch (err) {
+    console.error('Error in checkAndAwardTitles:', err);
+    return { newTitles: [], error: 'Unexpected error' };
+  }
+}
+
+// Set user's representative title
+export async function setUserTitle(
+  userId: string,
+  titleId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { success: false, error: 'Supabase not configured' };
+  }
+
+  try {
+    // Verify user owns this title (if not null)
+    if (titleId !== null) {
+      const { data: userTitle } = await supabase
+        .from('user_titles')
+        .select('title_id')
+        .eq('user_id', userId)
+        .eq('title_id', titleId)
+        .single();
+
+      if (!userTitle) {
+        return { success: false, error: 'Title not owned' };
+      }
+    }
+
+    // Update user's current title
+    const { error } = await supabase
+      .from('users')
+      .update({ current_title_id: titleId })
+      .eq('id', userId);
+
+    if (error) {
+      console.error('Error setting title:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error in setUserTitle:', err);
+    return { success: false, error: 'Unexpected error' };
+  }
+}
+
+// Get user's titles
+export async function getUserTitles(
+  userId: string
+): Promise<{ titles: DbTitle[]; acquiredIds: number[]; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { titles: [], acquiredIds: [], error: 'Supabase not configured' };
+  }
+
+  try {
+    // Get all titles
+    const { data: allTitles } = await supabase
+      .from('titles')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order');
+
+    // Get acquired titles
+    const { data: userTitles } = await supabase
+      .from('user_titles')
+      .select('title_id')
+      .eq('user_id', userId);
+
+    return {
+      titles: allTitles || [],
+      acquiredIds: userTitles?.map(t => t.title_id) || [],
+    };
+  } catch (err) {
+    console.error('Error in getUserTitles:', err);
+    return { titles: [], acquiredIds: [], error: 'Unexpected error' };
+  }
+}

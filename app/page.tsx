@@ -7,10 +7,11 @@ import SpinWheel from '@/components/SpinWheel';
 import { GameState, Player, TurnTime, RoomInfo } from '@/lib/types';
 import { Socket } from 'socket.io-client';
 import { useAuth } from '@/contexts/AuthContext';
-import { updateGameStats, GameResult } from '@/lib/supabase';
+import { updateGameStats, checkAndAwardTitles, GameResult, supabase, DbTitle } from '@/lib/supabase';
 
 export default function Home() {
-  const { user, isLoggedIn } = useAuth();
+  const { user, dbUser, isLoggedIn } = useAuth();
+  const [currentTitle, setCurrentTitle] = useState<DbTitle | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [roomId, setRoomId] = useState<string>('');
@@ -48,6 +49,23 @@ export default function Home() {
     }
   }, [isLoggedIn, user?.nickname, roomId]);
 
+  // 사용자의 대표 칭호 가져오기
+  useEffect(() => {
+    const fetchTitle = async () => {
+      if (dbUser?.current_title_id) {
+        const { data: titleData } = await supabase
+          .from('titles')
+          .select('*')
+          .eq('id', dbUser.current_title_id)
+          .single();
+        setCurrentTitle(titleData || null);
+      } else {
+        setCurrentTitle(null);
+      }
+    };
+    fetchTitle();
+  }, [dbUser?.current_title_id]);
+
   // 에러 자동 해제
   useEffect(() => {
     if (error) {
@@ -83,6 +101,11 @@ export default function Home() {
       setGameState(state);
       setError('');
       setIsLoading(false);
+
+      // 연습 모드면 자동으로 AI 추가
+      if (state.isPracticeMode && state.players.length < 2) {
+        newSocket.emit('addAI', { roomId });
+      }
     });
 
     newSocket.on('gameState', (state: GameState) => {
@@ -113,8 +136,15 @@ export default function Home() {
         userId: currentUser?.id,
         alreadyProcessed: gameResultProcessedRef.current,
         winner: winner?.nickname,
-        socketId: newSocket.id
+        socketId: newSocket.id,
+        isPracticeMode: state.isPracticeMode
       });
+
+      // 연습 모드에서는 기록 저장 안 함
+      if (state.isPracticeMode) {
+        console.log('Practice mode - skipping stats save');
+        return;
+      }
 
       if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
         gameResultProcessedRef.current = true;
@@ -145,6 +175,11 @@ export default function Home() {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
           if (updateResult.success) {
             console.log(`Game result saved successfully: ${result} in ${gameModeKey} mode`);
+            // Check and award any earned titles
+            const titleResult = await checkAndAwardTitles(currentUser.id);
+            if (titleResult.newTitles.length > 0) {
+              console.log('New titles earned:', titleResult.newTitles.map(t => t.display_name));
+            }
           } else {
             console.error('Failed to save game result:', updateResult.error);
           }
@@ -209,8 +244,15 @@ export default function Home() {
         userId: currentUser?.id,
         alreadyProcessed: gameResultProcessedRef.current,
         winner: winner?.nickname,
-        loser: loser?.nickname
+        loser: loser?.nickname,
+        isPracticeMode: state.isPracticeMode
       });
+
+      // 연습 모드에서는 기록 저장 안 함 (타이머가 없지만 안전을 위해 체크)
+      if (state.isPracticeMode) {
+        console.log('Practice mode - skipping stats save');
+        return;
+      }
 
       if (currentIsLoggedIn && currentUser?.id && !gameResultProcessedRef.current) {
         gameResultProcessedRef.current = true;
@@ -238,6 +280,11 @@ export default function Home() {
           const updateResult = await updateGameStats(currentUser.id, gameModeKey, result);
           if (updateResult.success) {
             console.log(`Game result saved (timeout): ${result} in ${gameModeKey} mode`);
+            // Check and award any earned titles
+            const titleResult = await checkAndAwardTitles(currentUser.id);
+            if (titleResult.newTitles.length > 0) {
+              console.log('New titles earned:', titleResult.newTitles.map(t => t.display_name));
+            }
           } else {
             console.error('Failed to save timeout game result:', updateResult.error);
           }
@@ -356,6 +403,25 @@ export default function Home() {
   const addAI = () => {
     if (!socket || !roomId) return;
     socket.emit('addAI', { roomId });
+  };
+
+  // AI 연습 모드 시작
+  const startPracticeMode = () => {
+    if (!socket || !isConnected || isLoading) return;
+    setIsLoading(true);
+    setError('');
+    const name = isLoggedIn && user?.nickname
+      ? user.nickname
+      : (inputNickname.trim() || '연습생');
+    setNickname(name);
+    gameResultProcessedRef.current = false;
+    socket.emit('createRoom', { nickname: name, turnTime: 30, isPracticeMode: true });
+  };
+
+  // 되돌리기 (연습 모드 전용)
+  const undoMove = () => {
+    if (!socket || !roomId || !gameState?.canUndo) return;
+    socket.emit('undoMove', roomId);
   };
 
   const onSpinComplete = useCallback((firstPlayer: number) => {
@@ -496,6 +562,17 @@ export default function Home() {
           >
             {isLoading ? '생성 중...' : !isConnected ? '연결 중...' : '새 게임 만들기'}
           </button>
+
+          {/* AI 연습 모드 버튼 */}
+          <button
+            onClick={startPracticeMode}
+            disabled={!isConnected || isLoading}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg text-sm sm:text-base transition-colors mb-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <span>🎯</span>
+            {isLoading ? '시작 중...' : !isConnected ? '연결 중...' : 'AI 연습 모드'}
+          </button>
+          <p className="text-xs text-gray-500 text-center mb-2">시간 제한 없음 · 되돌리기 가능 · 기록 미반영</p>
 
           <div className="flex items-center my-6">
             <div className="flex-1 border-t border-gray-300"></div>
@@ -701,17 +778,30 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-xs sm:text-sm text-gray-800 truncate">{currentPlayer?.nickname || '나'}</span>
-                    <button
-                      onClick={() => {
-                        setInputNickname(nickname);
-                        setIsEditingNickname(true);
-                      }}
-                      className="text-blue-500 text-xs hover:underline flex-shrink-0"
-                    >
-                      수정
-                    </button>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-xs sm:text-sm text-gray-800 truncate">{currentPlayer?.nickname || '나'}</span>
+                      <button
+                        onClick={() => {
+                          setInputNickname(nickname);
+                          setIsEditingNickname(true);
+                        }}
+                        className="text-blue-500 text-xs hover:underline flex-shrink-0"
+                      >
+                        수정
+                      </button>
+                    </div>
+                    {currentTitle && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded-full w-fit"
+                        style={{
+                          backgroundColor: currentTitle.color_hex ? `${currentTitle.color_hex}20` : '#f3e8ff',
+                          color: currentTitle.color_hex || '#7c3aed',
+                        }}
+                      >
+                        {currentTitle.display_name}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -765,13 +855,27 @@ export default function Home() {
           )}
 
           {gameState?.gameStatus === 'playing' && (
-            <div className="mt-2 p-2 sm:p-3 bg-green-100 border border-green-400 text-green-800 rounded text-center">
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-xs sm:text-sm font-bold">남은 시간:</span>
-                <span className={`text-lg sm:text-xl font-bold ${remainingTime <= 5 ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>
-                  {remainingTime}초
-                </span>
-              </div>
+            <div className={`mt-2 p-2 sm:p-3 ${gameState.isPracticeMode ? 'bg-orange-100 border border-orange-400 text-orange-800' : 'bg-green-100 border border-green-400 text-green-800'} rounded text-center`}>
+              {gameState.isPracticeMode ? (
+                <div className="flex items-center justify-center gap-3">
+                  <span className="text-xs sm:text-sm font-bold">🎯 연습 모드</span>
+                  {gameState.canUndo && isMyTurn() && (
+                    <button
+                      onClick={undoMove}
+                      className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-3 rounded text-xs transition-colors"
+                    >
+                      ↩ 되돌리기
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-xs sm:text-sm font-bold">남은 시간:</span>
+                  <span className={`text-lg sm:text-xl font-bold ${remainingTime <= 5 ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>
+                    {remainingTime}초
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>

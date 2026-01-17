@@ -14,6 +14,7 @@ interface RankingData {
   wins: number;
   win_rate: number;
   current_title_name: string | null;
+  current_title_color: string | null;
   rank: number;
 }
 
@@ -62,7 +63,7 @@ export default function RankingPage() {
           return;
         }
 
-        // Fetch user statistics with user info
+        // Fetch user statistics with user info and title
         let query = supabase
           .from('user_statistics')
           .select(`
@@ -74,7 +75,11 @@ export default function RankingPage() {
               id,
               display_name,
               photo_url,
-              current_title_id
+              current_title_id,
+              titles:current_title_id (
+                display_name,
+                color_hex
+              )
             )
           `)
           .gt('total_games', 0)
@@ -106,7 +111,8 @@ export default function RankingPage() {
           total_games: stat.total_games,
           wins: stat.wins,
           win_rate: parseFloat(stat.win_rate) || 0,
-          current_title_name: null,
+          current_title_name: stat.users?.titles?.display_name || null,
+          current_title_color: stat.users?.titles?.color_hex || null,
           rank: index + 1,
         }));
 
@@ -142,6 +148,7 @@ export default function RankingPage() {
                 wins: myStatsData.wins,
                 win_rate: parseFloat(myStatsData.win_rate) || 0,
                 current_title_name: null,
+                current_title_color: null,
                 rank: 51,
               });
             } else {
@@ -238,7 +245,13 @@ export default function RankingPage() {
                           {isMe && ' (나)'}
                         </span>
                         {rankedUser.current_title_name && (
-                          <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full whitespace-nowrap">
+                          <span
+                            className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap"
+                            style={{
+                              backgroundColor: rankedUser.current_title_color ? `${rankedUser.current_title_color}20` : '#f3e8ff',
+                              color: rankedUser.current_title_color || '#7c3aed',
+                            }}
+                          >
                             {rankedUser.current_title_name}
                           </span>
                         )}

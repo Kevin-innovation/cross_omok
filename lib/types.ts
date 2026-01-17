@@ -28,6 +28,8 @@ export interface GameState {
   lastMove?: Position | null;
   winningPositions?: Position[];
   rematchRequests?: string[];
+  isPracticeMode?: boolean;
+  canUndo?: boolean;
 }
 
 export interface RoomInfo {
