@@ -498,9 +498,11 @@ export default function Home() {
       <div className="min-h-[calc(100vh-120px)] flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 px-4">
         <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full">
           <div className="text-center mb-6 sm:mb-8">
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 mb-2">
-              Connect Four BY KEVIN
-            </h1>
+            <img
+              src="/logo.png"
+              alt="Connect 4"
+              className="h-12 sm:h-14 md:h-16 mx-auto mb-3"
+            />
             <p className="text-xs sm:text-sm text-gray-600">
               4개의 돌을 연속으로 놓아 승리하세요!
             </p>
@@ -730,11 +732,14 @@ export default function Home() {
               <span className="text-base sm:text-lg">←</span>
             </button>
             <div className="flex-1">
-              <h2 className="text-sm sm:text-base md:text-lg font-bold text-gray-800 flex items-center gap-1">
-                Connect Four BY KEVIN
-                <span className="text-[10px] sm:text-xs font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">VER.2.0</span>
+              <div className="flex items-center gap-2">
+                <img
+                  src="/logo.png"
+                  alt="Connect 4"
+                  className="h-6 sm:h-7"
+                />
                 {isConnected && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />}
-              </h2>
+              </div>
               <p className="text-xs sm:text-sm text-gray-600">
                 방 ID: <span className="font-mono font-bold text-blue-600">{roomId}</span>
               </p>
