@@ -233,16 +233,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initAuth = async () => {
       try {
-        // Use getUser() for secure session verification (recommended by Supabase)
-        const { data: { user: authUser }, error } = await supabase.auth.getUser();
+        // First try getSession() for quick cached session check
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-        if (error) {
-          console.log('No active session or error:', error.message);
+        if (sessionError) {
+          console.log('Session error:', sessionError.message);
         }
 
-        if (mounted && authUser) {
-          console.log('Session restored for user:', authUser.email);
-          await fetchOrCreateDbUser(authUser);
+        if (session?.user) {
+          console.log('Session found from cache:', session.user.email);
+          if (mounted) {
+            await fetchOrCreateDbUser(session.user);
+          }
+        } else {
+          // Fallback: try getUser() for server validation
+          const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
+
+          if (userError) {
+            console.log('No active session:', userError.message);
+          }
+
+          if (mounted && authUser) {
+            console.log('Session restored via getUser:', authUser.email);
+            await fetchOrCreateDbUser(authUser);
+          }
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
