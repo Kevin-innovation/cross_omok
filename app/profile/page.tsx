@@ -1,14 +1,27 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { supabase, DbUserStatistics, DbTitle, DbLeaderboardCache, getUserTitles, setUserTitle } from '@/lib/supabase';
+import { supabase, DbUserStatistics, DbTitle, getUserTitles, setUserTitle } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+
+// 통계 타입 정의
+interface GameModeStats {
+  total_games: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  win_rate: number;
+  current_streak: number;
+  current_streak_type: string | null;
+  best_win_streak: number;
+}
 
 export default function ProfilePage() {
   const { user, dbUser, isLoggedIn, openLoginModal, signOut, refreshDbUser } = useAuth();
-  const [stats, setStats] = useState<DbUserStatistics | null>(null);
+  const [aiStats, setAiStats] = useState<GameModeStats | null>(null);
+  const [pvpStats, setPvpStats] = useState<GameModeStats | null>(null);
+  const [totalStats, setTotalStats] = useState<GameModeStats | null>(null);
   const [currentTitle, setCurrentTitle] = useState<DbTitle | null>(null);
-  const [ranking, setRanking] = useState<DbLeaderboardCache | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [allTitles, setAllTitles] = useState<DbTitle[]>([]);
   const [acquiredTitleIds, setAcquiredTitleIds] = useState<number[]>([]);
@@ -34,50 +47,82 @@ export default function ProfilePage() {
       setIsLoading(true);
 
       try {
-        // First get the game mode ID for ai-ranked
-        const { data: gameModeData } = await supabase
+        // Get game mode IDs for both AI and PvP
+        const { data: gameModes } = await supabase
           .from('game_modes')
-          .select('id')
-          .eq('mode_key', 'ai-ranked')
-          .single();
+          .select('id, mode_key')
+          .in('mode_key', ['ai-ranked', 'player-ranked']);
 
         if (!mountedRef.current) return;
 
-        const gameModeId = gameModeData?.id;
+        const aiModeId = gameModes?.find(m => m.mode_key === 'ai-ranked')?.id;
+        const pvpModeId = gameModes?.find(m => m.mode_key === 'player-ranked')?.id;
 
-        // Fetch all user statistics (for all game modes)
-        const { data: allStats } = await supabase
+        console.log('Game modes found:', { aiModeId, pvpModeId });
+
+        // Fetch all user statistics
+        const { data: allUserStats, error: statsError } = await supabase
           .from('user_statistics')
           .select('*')
           .eq('user_id', user.id);
 
+        if (statsError) {
+          console.error('Error fetching stats:', statsError);
+        }
+
+        console.log('User stats fetched:', allUserStats);
+
         if (!mountedRef.current) return;
 
-        // Find the AI ranked stats or calculate totals
-        let aiRankedStats = allStats?.find(s => s.game_mode_id === gameModeId) || null;
+        // Helper function to create stats object
+        const createStats = (stat: any): GameModeStats => ({
+          total_games: stat?.total_games || 0,
+          wins: stat?.wins || 0,
+          losses: stat?.losses || 0,
+          draws: stat?.draws || 0,
+          win_rate: stat?.total_games > 0
+            ? (stat.wins / stat.total_games) * 100
+            : 0,
+          current_streak: stat?.current_streak || 0,
+          current_streak_type: stat?.current_streak_type || null,
+          best_win_streak: stat?.best_win_streak || 0,
+        });
 
-        // If no AI stats but has other stats, aggregate them
-        if (!aiRankedStats && allStats && allStats.length > 0) {
-          const totalStats = allStats.reduce((acc, s) => ({
+        // Find AI stats
+        const aiStatData = allUserStats?.find(s => s.game_mode_id === aiModeId);
+        const aiStatsResult = aiStatData ? createStats(aiStatData) : null;
+        setAiStats(aiStatsResult);
+        console.log('AI Stats:', aiStatsResult);
+
+        // Find PvP stats
+        const pvpStatData = allUserStats?.find(s => s.game_mode_id === pvpModeId);
+        const pvpStatsResult = pvpStatData ? createStats(pvpStatData) : null;
+        setPvpStats(pvpStatsResult);
+        console.log('PvP Stats:', pvpStatsResult);
+
+        // Calculate total stats
+        if (allUserStats && allUserStats.length > 0) {
+          const aggregated = allUserStats.reduce((acc, s) => ({
             total_games: acc.total_games + (s.total_games || 0),
             wins: acc.wins + (s.wins || 0),
             losses: acc.losses + (s.losses || 0),
             draws: acc.draws + (s.draws || 0),
-            current_streak: Math.max(acc.current_streak, s.current_streak || 0),
             best_win_streak: Math.max(acc.best_win_streak, s.best_win_streak || 0),
-          }), { total_games: 0, wins: 0, losses: 0, draws: 0, current_streak: 0, best_win_streak: 0 });
+          }), { total_games: 0, wins: 0, losses: 0, draws: 0, best_win_streak: 0 });
 
-          if (totalStats.total_games > 0) {
-            aiRankedStats = {
-              ...totalStats,
-              win_rate: (totalStats.wins / totalStats.total_games) * 100,
-              user_id: user.id,
-              game_mode_id: gameModeId || 0,
-            } as any;
+          if (aggregated.total_games > 0) {
+            setTotalStats({
+              ...aggregated,
+              win_rate: (aggregated.wins / aggregated.total_games) * 100,
+              current_streak: 0,
+              current_streak_type: null,
+            });
+          } else {
+            setTotalStats(null);
           }
+        } else {
+          setTotalStats(null);
         }
-
-        setStats(aiRankedStats);
 
         // Fetch current title if user has one
         if (dbUser?.current_title_id) {
@@ -99,11 +144,6 @@ export default function ProfilePage() {
         if (mountedRef.current) {
           setAllTitles(titles);
           setAcquiredTitleIds(acquiredIds);
-        }
-
-        // Ranking is optional - leaderboard_cache may not be populated
-        if (mountedRef.current) {
-          setRanking(null);
         }
 
       } catch (err) {
@@ -156,44 +196,148 @@ export default function ProfilePage() {
     );
   }
 
-  const totalGames = stats?.total_games || 0;
-  const wins = stats?.wins || 0;
-  const losses = stats?.losses || 0;
-  const draws = stats?.draws || 0;
-  const winRate = stats?.win_rate || 0;
-  const currentStreak = stats?.current_streak || 0;
-  const currentStreakType = stats?.current_streak_type || null;
-  const bestStreak = stats?.best_win_streak || 0;
-  const rank = ranking?.rank || '-';
+  // 통계 컴포넌트 - AI용
+  const AiStatsCard = ({ stats }: { stats: GameModeStats | null }) => {
+    if (!stats || stats.total_games === 0) {
+      return (
+        <div className="bg-purple-50 rounded-xl p-3 border border-purple-100">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg">🤖</span>
+            <span className="text-sm font-bold text-purple-700">AI 대전</span>
+          </div>
+          <p className="text-xs text-gray-500 text-center py-2">기록 없음</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-purple-50 rounded-xl p-3 border border-purple-100">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🤖</span>
+            <span className="text-sm font-bold text-purple-700">AI 대전</span>
+          </div>
+          <span className="text-lg font-bold text-purple-600">
+            {stats.win_rate.toFixed(0)}%
+          </span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-green-600">{stats.wins}승</span>
+          <span className="text-red-600">{stats.losses}패</span>
+          <span className="text-gray-500">{stats.draws}무</span>
+        </div>
+        <div className="text-[10px] text-gray-400 mt-1">총 {stats.total_games}게임</div>
+        {/* Progress bar */}
+        <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-gray-200">
+          {stats.total_games > 0 && (
+            <>
+              <div
+                className="bg-green-500"
+                style={{ width: `${(stats.wins / stats.total_games) * 100}%` }}
+              />
+              <div
+                className="bg-red-500"
+                style={{ width: `${(stats.losses / stats.total_games) * 100}%` }}
+              />
+              <div
+                className="bg-gray-400"
+                style={{ width: `${(stats.draws / stats.total_games) * 100}%` }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // 통계 컴포넌트 - PvP용
+  const PvpStatsCard = ({ stats }: { stats: GameModeStats | null }) => {
+    if (!stats || stats.total_games === 0) {
+      return (
+        <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg">⚔️</span>
+            <span className="text-sm font-bold text-blue-700">PvP 대전</span>
+          </div>
+          <p className="text-xs text-gray-500 text-center py-2">기록 없음</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚔️</span>
+            <span className="text-sm font-bold text-blue-700">PvP 대전</span>
+          </div>
+          <span className="text-lg font-bold text-blue-600">
+            {stats.win_rate.toFixed(0)}%
+          </span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-green-600">{stats.wins}승</span>
+          <span className="text-red-600">{stats.losses}패</span>
+          <span className="text-gray-500">{stats.draws}무</span>
+        </div>
+        <div className="text-[10px] text-gray-400 mt-1">총 {stats.total_games}게임</div>
+        {/* Progress bar */}
+        <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-gray-200">
+          {stats.total_games > 0 && (
+            <>
+              <div
+                className="bg-green-500"
+                style={{ width: `${(stats.wins / stats.total_games) * 100}%` }}
+              />
+              <div
+                className="bg-red-500"
+                style={{ width: `${(stats.losses / stats.total_games) * 100}%` }}
+              />
+              <div
+                className="bg-gray-400"
+                style={{ width: `${(stats.draws / stats.total_games) * 100}%` }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const totalGames = totalStats?.total_games || 0;
+  const totalWins = totalStats?.wins || 0;
+  const totalWinRate = totalStats?.win_rate || 0;
+  const bestStreak = totalStats?.best_win_streak || 0;
+
+  // 연승 계산 (AI 또는 PvP 중 현재 연승)
+  const currentStreak = Math.max(
+    aiStats?.current_streak_type === 'win' ? aiStats.current_streak : 0,
+    pvpStats?.current_streak_type === 'win' ? pvpStats.current_streak : 0
+  );
 
   return (
     <div className="min-h-[calc(100vh-120px)] bg-gradient-to-br from-blue-500 to-purple-600">
       <div className="max-w-[500px] mx-auto px-4 py-4">
         <div className="bg-white rounded-2xl shadow-2xl p-4">
           {/* Profile Header */}
-          <div className="text-center mb-6">
+          <div className="text-center mb-4">
             <div className="relative inline-block">
               {user?.photoUrl ? (
                 <img
                   src={user.photoUrl}
                   alt={user.nickname}
-                  className="w-24 h-24 rounded-full mx-auto mb-3 object-cover"
+                  className="w-20 h-20 rounded-full mx-auto mb-2 object-cover"
                 />
               ) : (
-                <div className="w-24 h-24 rounded-full mx-auto mb-3 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold">
+                <div className="w-20 h-20 rounded-full mx-auto mb-2 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold">
                   {user?.nickname.charAt(0).toUpperCase()}
                 </div>
               )}
-              {ranking && (
-                <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-sm font-bold text-yellow-900">
-                  {rank}
-                </div>
-              )}
             </div>
-            <h1 className="text-2xl font-bold text-gray-800">{user?.nickname}</h1>
+            <h1 className="text-xl font-bold text-gray-800">{user?.nickname}</h1>
             {currentTitle && (
               <div
-                className="inline-block mt-1 px-3 py-1 rounded-full text-sm font-medium"
+                className="inline-block mt-1 px-3 py-0.5 rounded-full text-xs font-medium"
                 style={{
                   backgroundColor: currentTitle.color_hex ? `${currentTitle.color_hex}20` : undefined,
                   color: currentTitle.color_hex || undefined,
@@ -203,82 +347,59 @@ export default function ProfilePage() {
               </div>
             )}
             {user?.email && (
-              <p className="text-sm text-gray-500 mt-2">{user.email}</p>
+              <p className="text-xs text-gray-500 mt-1">{user.email}</p>
             )}
           </div>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{totalGames}</div>
-              <div className="text-xs text-gray-500">총 게임</div>
+          {/* Total Stats Summary */}
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="text-lg font-bold text-blue-600">{totalGames}</div>
+              <div className="text-[10px] text-gray-500">총 게임</div>
             </div>
-            <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{winRate.toFixed(1)}%</div>
-              <div className="text-xs text-gray-500">승률</div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="text-lg font-bold text-green-600">{totalWins}</div>
+              <div className="text-[10px] text-gray-500">총 승리</div>
             </div>
-            <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-purple-600">#{rank}</div>
-              <div className="text-xs text-gray-500">랭킹</div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="text-lg font-bold text-purple-600">{totalWinRate.toFixed(0)}%</div>
+              <div className="text-[10px] text-gray-500">총 승률</div>
             </div>
-            <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-orange-600">{bestStreak}</div>
-              <div className="text-xs text-gray-500">최대 연승</div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="text-lg font-bold text-orange-600">{bestStreak}</div>
+              <div className="text-[10px] text-gray-500">최대 연승</div>
             </div>
           </div>
 
-          {/* Win/Loss/Draw */}
-          {totalGames > 0 && (
-            <div className="bg-gray-50 rounded-xl p-4 mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">전적</span>
-                <span className="text-sm text-gray-500">{wins}승 {losses}패 {draws}무</span>
-              </div>
-              <div className="flex h-4 rounded-full overflow-hidden">
-                <div
-                  className="bg-green-500"
-                  style={{ width: `${(wins / totalGames) * 100}%` }}
-                />
-                <div
-                  className="bg-red-500"
-                  style={{ width: `${(losses / totalGames) * 100}%` }}
-                />
-                <div
-                  className="bg-gray-400"
-                  style={{ width: `${(draws / totalGames) * 100}%` }}
-                />
-              </div>
-              <div className="flex justify-between mt-2 text-xs">
-                <span className="text-green-600">승리 {wins}</span>
-                <span className="text-red-600">패배 {losses}</span>
-                <span className="text-gray-500">무승부 {draws}</span>
-              </div>
-            </div>
-          )}
+          {/* AI vs PvP Stats - Side by Side */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <AiStatsCard stats={aiStats} />
+            <PvpStatsCard stats={pvpStats} />
+          </div>
 
           {/* Current Streak - 연승일 때만 표시 */}
-          {currentStreak > 0 && currentStreakType === 'win' && (
-            <div className="bg-orange-50 rounded-xl p-4 border-2 border-orange-200 mb-6">
+          {currentStreak > 0 && (
+            <div className="bg-orange-50 rounded-xl p-3 border-2 border-orange-200 mb-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium text-orange-700">현재 연승</div>
-                  <div className="text-3xl font-bold text-orange-600">{currentStreak}연승</div>
+                  <div className="text-xs font-medium text-orange-700">현재 연승</div>
+                  <div className="text-2xl font-bold text-orange-600">{currentStreak}연승</div>
                 </div>
-                <div className="text-4xl">🔥</div>
+                <div className="text-3xl">🔥</div>
               </div>
             </div>
           )}
 
           {/* No games played message */}
           {totalGames === 0 && (
-            <div className="bg-blue-50 rounded-xl p-4 mb-6 text-center">
+            <div className="bg-blue-50 rounded-xl p-4 mb-4 text-center">
               <p className="text-blue-600 font-medium">아직 플레이한 게임이 없습니다.</p>
               <p className="text-sm text-blue-500 mt-1">게임을 시작해 통계를 쌓아보세요!</p>
             </div>
           )}
 
           {/* Title Section */}
-          <div className="bg-purple-50 rounded-xl p-4 mb-6">
+          <div className="bg-purple-50 rounded-xl p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-purple-700">대표 칭호</span>
               <button
