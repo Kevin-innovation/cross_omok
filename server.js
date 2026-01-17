@@ -102,6 +102,11 @@ class GameRoom {
       return { success: false, error: '2명의 플레이어가 필요합니다' };
     }
 
+    // 이미 스피닝 중이거나 게임 중이면 무시
+    if (this.isSpinning || this.gameStatus === 'spinning' || this.gameStatus === 'playing') {
+      return { success: false, error: '이미 게임이 시작되었습니다' };
+    }
+
     this.isSpinning = true;
     this.gameStatus = 'spinning';
 
@@ -820,7 +825,7 @@ app.prepare().then(() => {
 
     if (deletedCount > 0) {
       // 방 목록 업데이트
-      io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+      io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
       console.log(`Cleanup completed: ${deletedCount} inactive room(s) deleted`);
     }
   }
@@ -870,13 +875,17 @@ app.prepare().then(() => {
 
       socket.join(roomId);
       io.to(roomId).emit('gameState', room.getState());
-      io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+      // 연습 모드 방은 목록에서 제외
+      io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
       console.log(`Player ${socket.id} joined room ${roomId}`);
     });
 
     // 방 목록 요청
     socket.on('getRoomList', () => {
-      const roomList = Array.from(rooms.values()).map(r => r.getRoomInfo());
+      // 연습 모드 방은 목록에서 제외
+      const roomList = Array.from(rooms.values())
+        .filter(r => !r.isPracticeMode)
+        .map(r => r.getRoomInfo());
       socket.emit('roomList', roomList);
     });
 
@@ -915,6 +924,12 @@ app.prepare().then(() => {
 
         // 3초 후 게임 시작
         setTimeout(() => {
+          // 방이 여전히 존재하고 spinning 상태인지 확인
+          if (!rooms.has(roomId) || room.gameStatus !== 'spinning') {
+            console.log(`Room ${roomId} no longer valid for game start`);
+            return;
+          }
+
           room.startGameAfterSpin();
           io.to(roomId).emit('gameState', room.getState());
 
@@ -1018,6 +1033,12 @@ app.prepare().then(() => {
 
               // 3초 후 게임 시작
               setTimeout(() => {
+                // 방이 여전히 존재하고 spinning 상태인지 확인
+                if (!rooms.has(roomId) || room.gameStatus !== 'spinning') {
+                  console.log(`Room ${roomId} no longer valid for rematch game start`);
+                  return;
+                }
+
                 room.startGameAfterSpin();
                 io.to(roomId).emit('gameState', room.getState());
                 startRoomTimer(roomId, room);
@@ -1049,13 +1070,13 @@ app.prepare().then(() => {
         if (room.players.length === 0) {
           rooms.delete(roomId);
           console.log(`Room ${roomId} deleted`);
-          io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+          io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
         } else {
           io.to(roomId).emit('gameState', room.getState());
           io.to(roomId).emit('playerDisconnected', {
             message: '상대방이 나갔습니다'
           });
-          io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+          io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
         }
       }
     });
@@ -1074,13 +1095,13 @@ app.prepare().then(() => {
           if (room.players.length === 0) {
             rooms.delete(roomId);
             console.log(`Room ${roomId} deleted`);
-            io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+            io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
           } else {
             io.to(roomId).emit('gameState', room.getState());
             io.to(roomId).emit('playerDisconnected', {
               message: '상대방이 나갔습니다'
             });
-            io.emit('roomListUpdated', Array.from(rooms.values()).map(r => r.getRoomInfo()));
+            io.emit('roomListUpdated', Array.from(rooms.values()).filter(r => !r.isPracticeMode).map(r => r.getRoomInfo()));
           }
           break;
         }
